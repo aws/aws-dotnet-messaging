@@ -10,7 +10,7 @@ The **AWS Message Processing Framework for .NET** is an AWS-native framework tha
 
 Add the `AWS.Messaging` NuGet package to your project:
 ```
-dotnet add package AWS.Messaging --prerelease
+dotnet add package AWS.Messaging
 ```
 
 The framework integrates with .NET's [dependency injection (DI) service container](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection). You can configure the framework during your application's startup by calling `AddAWSMessageBus` to add it to the DI container.
