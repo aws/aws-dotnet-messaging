@@ -97,11 +97,8 @@ internal class SNSPublisher : IMessagePublisher, ISNSPublisher
                 }
                 else // use the publisher-level client
                 {
-                    if (_snsClient == null)
-                    {
-                        // If we haven't resolved the client yet for this publisher, do so now
-                        _snsClient = _awsClientProvider.GetServiceClient<IAmazonSimpleNotificationService>();
-                    }
+                    // If we haven't resolved the client yet for this publisher, do so now
+                    _snsClient ??= _awsClientProvider.GetServiceClient<IAmazonSimpleNotificationService>();
                     client = _snsClient;
                 }
 

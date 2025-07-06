@@ -98,11 +98,8 @@ internal class SQSPublisher : ISQSPublisher
                 }
                 else // use the publisher-level client
                 {
-                    if (_sqsClient == null)
-                    {
-                        // If we haven't resolved the client yet for this publisher, do so now
-                        _sqsClient = _awsClientProvider.GetServiceClient<IAmazonSQS>();
-                    }
+                    // If we haven't resolved the client yet for this publisher, do so now
+                    _sqsClient ??= _awsClientProvider.GetServiceClient<IAmazonSQS>();
 
                     client = _sqsClient;
                 }

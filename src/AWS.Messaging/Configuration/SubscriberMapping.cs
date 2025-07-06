@@ -56,10 +56,10 @@ public class SubscriberMapping
     public static SubscriberMapping Create<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THandler, TMessage>(string? messageTypeIdentifier = null)
         where THandler : IMessageHandler<TMessage>
     {
-        var envelopeFactory = () =>
+        static MessageEnvelope<TMessage> envelopeFactory()
         {
             return new MessageEnvelope<TMessage>();
-        };
+        }
 
         return new SubscriberMapping(typeof(THandler), typeof(TMessage), envelopeFactory, messageTypeIdentifier);
     }

@@ -17,7 +17,6 @@ public class DefaultMessageManager : IMessageManager
     private readonly ILogger<DefaultMessageManager> _logger;
     private readonly MessageManagerConfiguration _configuration;
 
-    private readonly object _activeMessageCountLock = new object();
     private int _activeMessageCount;
     private readonly ManualResetEventSlim _activeMessageCountDecrementedEvent = new ManualResetEventSlim(false);
 
@@ -43,13 +42,7 @@ public class DefaultMessageManager : IMessageManager
     /// <inheritdoc/>
     public int ActiveMessageCount
     {
-        get
-        {
-            lock (_activeMessageCountLock)
-            {
-                return _activeMessageCount;
-            }
-        }
+        get => Volatile.Read(ref _activeMessageCount);
     }
 
     /// <summary>
@@ -59,22 +52,18 @@ public class DefaultMessageManager : IMessageManager
     /// <returns>Updated <see cref="ActiveMessageCount"/></returns>
     private int UpdateActiveMessageCount(int delta)
     {
-        lock (_activeMessageCountLock)
+        int newValue = Interlocked.Add(ref _activeMessageCount, delta);
+        _logger.LogTrace("Updating {ActiveMessageCount} from {Before} to {After}", nameof(ActiveMessageCount), newValue - delta, newValue);
+
+ 
+        // If we just decremented the active message count, signal to the poller
+        // that there may be more capacity available again.
+        if (delta < 0)
         {
-            var newValue = _activeMessageCount + delta;
-            _logger.LogTrace("Updating {ActiveMessageCount} from {Before} to {After}", nameof(ActiveMessageCount), _activeMessageCount, newValue);
-
-            _activeMessageCount = newValue;
-
-            // If we just decremented the active message count, signal to the poller
-            // that there may be more capacity available again.
-            if (delta < 0)
-            {
-                _activeMessageCountDecrementedEvent.Set();
-            }
-
-            return _activeMessageCount;
+            _activeMessageCountDecrementedEvent.Set();
         }
+
+        return newValue;
     }
 
     /// <inheritdoc/>

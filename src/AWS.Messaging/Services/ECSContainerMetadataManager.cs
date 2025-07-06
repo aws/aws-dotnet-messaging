@@ -84,7 +84,7 @@ internal class ECSContainerMetadataManager : IECSContainerMetadataManager
             return false;
 
         // Use the .NET SDK to parse the Cluster to check if it is an ARN or Short Name
-        if (!Arn.TryParse(metadata.Cluster, out _))
+        if (!Arn.IsArn(metadata.Cluster))
         {
             // Validate the Cluster name which has the following validation rule:
             // There can be a maximum of 255 characters. The valid characters are letters (uppercase and lowercase), numbers, hyphens, and underscores.
@@ -97,13 +97,12 @@ internal class ECSContainerMetadataManager : IECSContainerMetadataManager
 
             // Use a regular expression to validate the characters
             // Valid characters include letters (uppercase and lowercase), numbers, hyphens, and underscores
-            Regex validPattern = new Regex(@"^[A-Za-z0-9\-_]+$");
-            if (!validPattern.IsMatch(metadata.Cluster))
+            if (!Regex.IsMatch(metadata.Cluster, @"^[A-Za-z0-9\-_]+$"))
                 return false;
         }
 
         // Use the .NET SDK to parse the Task ARN to check if it is valid
-        if (!Arn.TryParse(metadata.TaskARN, out _))
+        if (!Arn.IsArn(metadata.TaskARN))
             return false;
 
         return true;

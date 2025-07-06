@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Minor threading and memory optimizations and cleanups"
+      ]
+    }
+  ]
+}

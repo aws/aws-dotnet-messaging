@@ -51,7 +51,7 @@ internal class DefaultLambdaMessaging : ILambdaMessaging
         {
             try
             {
-                if (sqsEvent.Records?.Any() == false)
+                if (sqsEvent.Records?.Count == 0)
                     return;
 
                 _lambdaContextHolder.Context = context;
@@ -84,7 +84,7 @@ internal class DefaultLambdaMessaging : ILambdaMessaging
         {
             try
             {
-                if (sqsEvent.Records?.Any() == false)
+                if (sqsEvent.Records?.Count == 0)
                     return new SQSBatchResponse();
 
                 _lambdaContextHolder.Context = context;

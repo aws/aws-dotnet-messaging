@@ -5,7 +5,6 @@ using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Internal;
 using AWS.Messaging.Serialization.Helpers;
-using MessageAttributeValue = Amazon.SimpleNotificationService.Model.MessageAttributeValue;
 
 namespace AWS.Messaging.Serialization.Handlers;
 
@@ -82,8 +81,8 @@ internal static class MessageMetadataHandler
         if (root.TryGetProperty("resources", out var resources))
         {
             metadata.Resources = resources.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
                 .Select(x => x.GetString())
-                .Where(x => x != null)
                 .ToList()!;
         }
 

@@ -9,7 +9,6 @@ using AWS.Messaging.Serialization;
 using AWS.Messaging.Services;
 using AWS.Messaging.SQS;
 using AWS.Messaging.Telemetry;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace AWS.Messaging.Lambda.Services;
@@ -77,7 +76,7 @@ internal class DefaultLambdaMessageProcessor : ILambdaMessageProcessor, ISQSMess
 
                 trace.AddMetadata(TelemetryKeys.QueueUrl, _configuration.SubscriberEndpoint);
 
-                if (sqsEvent is null || !sqsEvent.Records.Any())
+                if (sqsEvent is null || sqsEvent.Records.Count == 0)
                 {
                     return _sqsBatchResponse;
                 }
