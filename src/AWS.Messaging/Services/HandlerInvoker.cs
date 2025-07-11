@@ -54,7 +54,7 @@ public class HandlerInvoker : IHandlerInvoker
                     trace.AddMetadata(TelemetryKeys.SqsMessageId, messageEnvelope.SQSMetadata.MessageID);
                 }
 
-                using (var scope = _serviceProvider.CreateScope())
+                await using (var scope = _serviceProvider.CreateAsyncScope())
                 {
                     object handler;
                     try
