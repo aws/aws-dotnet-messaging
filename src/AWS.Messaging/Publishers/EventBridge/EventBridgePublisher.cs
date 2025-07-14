@@ -103,11 +103,9 @@ internal class EventBridgePublisher : IMessagePublisher, IEventBridgePublisher
                 }
                 else // use the publisher-level client
                 {
-                    if (_eventBridgeClient == null)
-                    {
-                        // If we haven't resolved the client yet for this publisher, do so now
-                        _eventBridgeClient = _awsClientProvider.GetServiceClient<IAmazonEventBridge>();
-                    }
+                    // If we haven't resolved the client yet for this publisher, do so now
+                    _eventBridgeClient ??= _awsClientProvider.GetServiceClient<IAmazonEventBridge>();
+
                     client = _eventBridgeClient;
                 }
 

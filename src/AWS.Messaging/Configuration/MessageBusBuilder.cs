@@ -115,10 +115,7 @@ public class MessageBusBuilder : IMessageBusBuilder
         // Create the user-provided options class
         var sqsMessagePollerOptions = new SQSMessagePollerOptions();
 
-        if (options != null)
-        {
-            options.Invoke(sqsMessagePollerOptions);
-        }
+        options?.Invoke(sqsMessagePollerOptions);
 
         sqsMessagePollerOptions.Validate();
 
@@ -188,9 +185,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         {
             foreach (var sqsPublisher in settings.SQSPublishers)
             {
-                var messageType = GetTypeFromAssemblies(callingAssembly, sqsPublisher.MessageType);
-                if (messageType is null)
-                    throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{sqsPublisher.MessageType}'.");
+                var messageType = GetTypeFromAssemblies(callingAssembly, sqsPublisher.MessageType)
+                    ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{sqsPublisher.MessageType}'.");
+
                 AddSQSPublisher(messageType, sqsPublisher.QueueUrl, sqsPublisher.MessageTypeIdentifier);
             }
         }
@@ -199,9 +196,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         {
             foreach (var snsPublisher in settings.SNSPublishers)
             {
-                var messageType = GetTypeFromAssemblies(callingAssembly, snsPublisher.MessageType);
-                if (messageType is null)
-                    throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{snsPublisher.MessageType}'.");
+                var messageType = GetTypeFromAssemblies(callingAssembly, snsPublisher.MessageType)
+                    ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{snsPublisher.MessageType}'.");
+
                 AddSNSPublisher(messageType, snsPublisher.TopicUrl, snsPublisher.MessageTypeIdentifier);
             }
         }
@@ -210,9 +207,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         {
             foreach (var eventBridgePublisher in settings.EventBridgePublishers)
             {
-                var messageType = GetTypeFromAssemblies(callingAssembly, eventBridgePublisher.MessageType);
-                if (messageType is null)
-                    throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{eventBridgePublisher.MessageType}'.");
+                var messageType = GetTypeFromAssemblies(callingAssembly, eventBridgePublisher.MessageType)
+                    ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{eventBridgePublisher.MessageType}'.");
+
                 AddEventBridgePublisher(messageType, eventBridgePublisher.EventBusName, eventBridgePublisher.MessageTypeIdentifier, eventBridgePublisher.Options);
             }
         }
@@ -221,17 +218,15 @@ public class MessageBusBuilder : IMessageBusBuilder
         {
             foreach (var messageHandler in settings.MessageHandlers)
             {
-                var messageType = GetTypeFromAssemblies(callingAssembly, messageHandler.MessageType);
-                if (messageType is null)
-                    throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{messageHandler.MessageType}'.");
-                var handlerType = GetTypeFromAssemblies(callingAssembly, messageHandler.HandlerType);
-                if (handlerType is null)
-                    throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message handler type '{messageHandler.HandlerType}'.");
+                var messageType = GetTypeFromAssemblies(callingAssembly, messageHandler.MessageType)
+                    ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message type '{messageHandler.MessageType}'.");
+                var handlerType = GetTypeFromAssemblies(callingAssembly, messageHandler.HandlerType)
+                    ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message handler type '{messageHandler.HandlerType}'.");
 
                 // This func is not Native AOT compatible but the method in general is marked
                 // as not being Native AOT compatible due to loading dynamic types. So this
                 // func not being Native AOT compatible is okay.
-                var envelopeFactory = () =>
+                MessageEnvelope envelopeFactory()
                 {
                     var messageEnvelopeType = typeof(MessageEnvelope<>).MakeGenericType(messageType);
                     var envelope = Activator.CreateInstance(messageEnvelopeType);
@@ -241,7 +236,7 @@ public class MessageBusBuilder : IMessageBusBuilder
 
                     }
                     return (MessageEnvelope)envelope;
-                };
+                }
 
                 AddMessageHandler(handlerType, messageType, envelopeFactory, messageHandler.MessageTypeIdentifier);
             }

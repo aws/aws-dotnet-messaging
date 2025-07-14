@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Publishers.EventBridge;
 using AWS.Messaging.Publishers.SNS;
@@ -40,12 +41,12 @@ internal class MessageRoutingPublisher : IMessagePublisher
         _telemetryFactory = telemetryFactory;
     }
 
-    private readonly Dictionary<string, Type> _publisherTypeMapping = new()
+    private static readonly FrozenDictionary<string, Type> s_publisherTypeMapping = new Dictionary<string, Type>
         {
             { PublisherTargetType.SQS_PUBLISHER, typeof(SQSPublisher) },
             { PublisherTargetType.SNS_PUBLISHER, typeof(SNSPublisher) },
             { PublisherTargetType.EVENTBRIDGE_PUBLISHER, typeof(EventBridgePublisher) }
-        };
+        }.ToFrozenDictionary();
 
     /// <summary>
     /// This dictionary serves as a method to cache created instances of <see cref="ICommandPublisher"/>,
@@ -85,7 +86,7 @@ internal class MessageRoutingPublisher : IMessagePublisher
 
                 trace.AddMetadata(TelemetryKeys.PublishTargetType, mapping.PublishTargetType);
 
-                if (_publisherTypeMapping.TryGetValue(mapping.PublishTargetType, out var publisherType))
+                if (s_publisherTypeMapping.TryGetValue(mapping.PublishTargetType, out var publisherType))
                 {
                     if (typeof(ICommandPublisher).IsAssignableFrom(publisherType))
                     {

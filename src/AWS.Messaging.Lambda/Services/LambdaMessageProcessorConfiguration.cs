@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 using Amazon.Lambda.SQSEvents;
-using AWS.Messaging.Configuration;
 
 namespace AWS.Messaging.Lambda.Services;
 

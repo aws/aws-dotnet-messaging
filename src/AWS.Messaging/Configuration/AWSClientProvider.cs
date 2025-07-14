@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-using System.Reflection;
 using Amazon.Runtime;
 using AWS.Messaging.Telemetry;
 
@@ -29,18 +28,18 @@ internal class AWSClientProvider : IAWSClientProvider
     public T GetServiceClient<T>() where T : IAmazonService
     {
         var serviceClient =  _serviceProvider.GetService(typeof(T)) ?? throw new FailedToFindAWSServiceClientException($"Failed to find AWS service client of type {typeof(T)}");
-        if (serviceClient is AmazonServiceClient)
+        if (serviceClient is AmazonServiceClient client)
         {
-            ((AmazonServiceClient)serviceClient).BeforeRequestEvent += AWSServiceClient_BeforeServiceRequest;
+            client.BeforeRequestEvent += AWSServiceClient_BeforeServiceRequest;
         }
         return (T)serviceClient;
     }
 
     internal static void AWSServiceClient_BeforeServiceRequest(object sender, RequestEventArgs e)
     {
-        if (e is not WebServiceRequestEventArgs args || !args.Headers.ContainsKey(_userAgentHeader) || args.Headers[_userAgentHeader].Contains(_userAgentString))
+        if (e is not WebServiceRequestEventArgs args || !args.Headers.TryGetValue(_userAgentHeader, out var value) || value.Contains(_userAgentString))
             return;
 
-        args.Headers[_userAgentHeader] = args.Headers[_userAgentHeader] + " " + _userAgentString;
+        args.Headers[_userAgentHeader] = value + " " + _userAgentString;
     }
 }

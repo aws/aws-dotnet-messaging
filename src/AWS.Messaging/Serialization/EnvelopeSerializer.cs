@@ -10,6 +10,7 @@ using AWS.Messaging.Internal;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.Logging;
 using AWS.Messaging.Serialization.Parsers;
+using System.Collections.Frozen;
 
 namespace AWS.Messaging.Serialization;
 
@@ -194,25 +195,43 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             return true;
         }
 
-        // Remove any parameters from the content type
-        var mediaType = dataContentType.Split(';')[0].Trim().ToLower();
+        ReadOnlySpan<char> contentType = dataContentType.AsSpan().Trim();
 
-        // Check if the media type is "application/json"
-        if (mediaType == "application/json")
-        {
+        // Remove parameters (anything after ';')
+        int semicolonIndex = contentType.IndexOf(';');
+        if (semicolonIndex >= 0)
+            contentType = contentType.Slice(0, semicolonIndex).Trim();
+
+        // Check "application/json" (case-insensitive)
+        if (contentType.Equals("application/json", StringComparison.OrdinalIgnoreCase))
             return true;
+
+        // Find the '/' separator
+        int slashIndex = contentType.IndexOf('/');
+        if (slashIndex < 0
+            || slashIndex == contentType.Length - 1
+            || slashIndex != contentType.LastIndexOf('/'))
+        {
+            // If there are multiple slashes, ends with a slash or there are no slashes at all, it's not a valid content type
+            return false;
         }
+
+        ReadOnlySpan<char> subtype = contentType.Slice(slashIndex + 1);
 
         // Check if the media subtype is "json" or ends with "+json"
-        var parts = mediaType.Split('/');
-        if (parts.Length == 2)
-        {
-            var subtype = parts[1];
-            return subtype == "json" || subtype.EndsWith("+json");
-        }
-
-        return false;
+        return subtype.Equals("json", StringComparison.OrdinalIgnoreCase)
+            || subtype.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static readonly FrozenSet<string> s_knownEnvelopeProperties = new HashSet<string> {
+        "id",
+        "source",
+        "specversion",
+        "type",
+        "time",
+        "datacontenttype",
+        "data"
+    }.ToFrozenSet();
 
     private  (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
     {
@@ -227,17 +246,6 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
         try
         {
-
-            var knownProperties = new HashSet<string>
-            {
-                "id",
-                "source",
-                "specversion",
-                "type",
-                "time",
-                "data"
-            };
-
             // Set envelope properties
             envelope.Id = JsonPropertyHelper.GetRequiredProperty(root, "id", element => element.GetString()!);
             envelope.Source = JsonPropertyHelper.GetRequiredProperty(root, "source", element => new Uri(element.GetString()!, UriKind.RelativeOrAbsolute));
@@ -249,7 +257,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             // Handle metadata - copy any properties that aren't standard envelope properties
             foreach (var property in root.EnumerateObject())
             {
-                if (!knownProperties.Contains(property.Name))
+                if (!s_knownEnvelopeProperties.Contains(property.Name))
                 {
                     envelope.Metadata[property.Name] = property.Value.Clone();
                 }

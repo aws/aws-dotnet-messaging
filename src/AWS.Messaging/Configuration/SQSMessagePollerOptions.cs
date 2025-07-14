@@ -78,7 +78,7 @@ public class SQSMessagePollerOptions
                             $"or else other consumers may receive the message while it is still being processed.");
         }
 
-        if (errorMessages.Any())
+        if (errorMessages.Count != 0)
         {
             throw new InvalidSQSMessagePollerOptionsException(string.Join(Environment.NewLine, errorMessages));
         }
