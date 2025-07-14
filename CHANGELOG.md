@@ -1,3 +1,11 @@
+## Release 2025-07-14
+
+### AWS.Messaging.Lambda (1.0.1)
+* Don't use .Any() on List<T>
+### AWS.Messaging (1.0.1)
+* Support scoped IAsyncDisposable services being disposed after message is processed
+* Minor threading and memory optimizations and cleanups
+
 ## Release 2025-06-03
 
 ### AWS.Messaging.Telemetry.OpenTelemetry (0.23.0)
