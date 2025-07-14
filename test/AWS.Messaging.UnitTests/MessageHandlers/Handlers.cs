@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Amazon.Lambda.Core;
 using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -41,6 +40,37 @@ public class ChatMessageHandlerWithDependencies : IMessageHandler<ChatMessage>
     {
         _thingDoer.DoThingWithThing();
         return Task.FromResult(MessageProcessStatus.Success());
+    }
+}
+
+public class ChatMessageHandlerWithDisposableServices : IMessageHandler<ChatMessage>
+{
+    public ChatMessageHandlerWithDisposableServices(TestDisposableServiceAsync testDisposableServiceAsync, TestDisposableService testDisposable)
+    {
+    }
+
+    public Task<MessageProcessStatus> HandleAsync(MessageEnvelope<ChatMessage> messageEnvelope, CancellationToken token = default)
+    {
+        return Task.FromResult(MessageProcessStatus.Success());
+    }
+
+    public class TestDisposableServiceAsync : IAsyncDisposable
+    {
+        public static long CallCount { get; set; } = 0;
+        public ValueTask DisposeAsync()
+        {
+            CallCount++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    public class TestDisposableService : IDisposable
+    {
+        public static long CallCount { get; set; } = 0;
+        public void Dispose()
+        {
+            CallCount++;
+        }
     }
 }
 

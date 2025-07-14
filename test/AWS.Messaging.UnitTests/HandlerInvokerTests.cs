@@ -183,4 +183,34 @@ public class HandlerInvokerTests
             await handlerInvoker.InvokeAsync(envelope, subscriberMapping);
         });
     }
+
+    [Fact]
+    public async Task HandlerInvoker_ScopeDispose()
+    {
+        var serviceCollection = new ServiceCollection()
+           .AddAWSMessageBus(builder =>
+           {
+               builder.AddMessageHandler<ChatMessageHandlerWithDisposableServices, ChatMessage>();
+           });
+
+        serviceCollection.AddScoped<ChatMessageHandlerWithDisposableServices.TestDisposableService, ChatMessageHandlerWithDisposableServices.TestDisposableService>();
+        serviceCollection.AddScoped<ChatMessageHandlerWithDisposableServices.TestDisposableServiceAsync, ChatMessageHandlerWithDisposableServices.TestDisposableServiceAsync>();
+
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        ChatMessageHandlerWithDisposableServices.TestDisposableService.CallCount = 0;
+        ChatMessageHandlerWithDisposableServices.TestDisposableServiceAsync.CallCount = 0;
+
+        var handlerInvoker = new HandlerInvoker(
+            serviceProvider,
+            new NullLogger<HandlerInvoker>(),
+            new DefaultTelemetryFactory(serviceProvider));
+
+        var envelope = new MessageEnvelope<ChatMessage>();
+        var subscriberMapping = SubscriberMapping.Create<ChatMessageHandlerWithDisposableServices, ChatMessage>();
+        await handlerInvoker.InvokeAsync(envelope, subscriberMapping);
+
+        Assert.Equal(1, ChatMessageHandlerWithDisposableServices.TestDisposableService.CallCount);
+        Assert.Equal(1, ChatMessageHandlerWithDisposableServices.TestDisposableServiceAsync.CallCount);
+    }
 }
