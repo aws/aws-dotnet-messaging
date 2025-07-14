@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-using Amazon.Lambda.Core;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Lambda;
 using AWS.Messaging.Lambda.Services;
@@ -25,10 +24,7 @@ public static class MessageBusBuilderExtensions
     {
         var lambdaMessagingOptions = new LambdaMessagingOptions();
 
-        if (options != null)
-        {
-            options.Invoke(lambdaMessagingOptions);
-        }
+        options?.Invoke(lambdaMessagingOptions);
 
         lambdaMessagingOptions.Validate();
 

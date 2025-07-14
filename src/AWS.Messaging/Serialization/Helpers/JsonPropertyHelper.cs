@@ -20,11 +20,7 @@ internal static class JsonPropertyHelper
     /// <returns>The converted value or default if the property doesn't exist.</returns>
     public static T? GetPropertyValue<T>(JsonElement root, string propertyName, Func<JsonElement, T> getValue)
     {
-        if (getValue == null)
-        {
-            throw new ArgumentNullException(nameof(getValue));
-        }
-
+        ArgumentNullException.ThrowIfNull(getValue);
 
         return root.TryGetProperty(propertyName, out var property) ? getValue(property) : default;
     }

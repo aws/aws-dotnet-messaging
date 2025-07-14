@@ -95,8 +95,8 @@ internal class MessageSourceHandler : IMessageSourceHandler
     {
         source = source.Trim();
         suffix = suffix?.Trim();
-        var sourceEndsInSlash = source.EndsWith("/");
-        var suffixStartsWithSlash = suffix?.StartsWith("/") ?? true;
+        var sourceEndsInSlash = source.EndsWith('/');
+        var suffixStartsWithSlash = suffix?.StartsWith('/') ?? true;
 
         if (sourceEndsInSlash && suffixStartsWithSlash)
         {
@@ -141,8 +141,15 @@ internal class MessageSourceHandler : IMessageSourceHandler
         if (taskMetadata == null)
             return null;
 
-        var clusterName = taskMetadata.Cluster.Split('/').Last();
-        var taskId = taskMetadata.TaskARN.Split('/').Last();
+        static string GetLastSegment(string value)
+        {
+            var span = value.AsSpan();
+            int lastSlash = span.LastIndexOf('/');
+            return lastSlash >= 0 ? span.Slice(lastSlash + 1).ToString() : value;
+        }
+
+        string clusterName = GetLastSegment(taskMetadata.Cluster);
+        string taskId = GetLastSegment(taskMetadata.TaskARN);
 
         return $"/AmazonECS/{clusterName}/{taskId}";
     }
