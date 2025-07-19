@@ -39,7 +39,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            new MessageConfiguration());
 
         var envelope = new MessageEnvelope<ChatMessage>();
         var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
@@ -67,7 +68,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            new MessageConfiguration());
 
         // Assert that ChatMessage is routed to the right handler method, which always succeeds
         var chatEnvelope = new MessageEnvelope<ChatMessage>();
@@ -105,7 +107,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             mockLogger.Object,
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            new MessageConfiguration());
         var envelope = new MessageEnvelope<ChatMessage>()
         {
             Id = "123"
@@ -137,7 +140,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            new MessageConfiguration());
 
         // ACT and ASSERT - Invoke the GreetingHandler multiple times and verify that a new instance of IGreeter is created each time.
         var envelope = new MessageEnvelope<string>();
@@ -174,7 +178,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            new MessageConfiguration());
 
         var envelope = new MessageEnvelope<ChatMessage>();
         var subscriberMapping = SubscriberMapping.Create<ChatMessageHandlerWithDependencies, ChatMessage>();
@@ -204,7 +209,8 @@ public class HandlerInvokerTests
         var handlerInvoker = new HandlerInvoker(
             serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(serviceProvider));
+            new DefaultTelemetryFactory(serviceProvider),
+            serviceProvider.GetRequiredService<IMessageConfiguration>());
 
         var envelope = new MessageEnvelope<ChatMessage>();
         var subscriberMapping = SubscriberMapping.Create<ChatMessageHandlerWithDisposableServices, ChatMessage>();
@@ -212,5 +218,117 @@ public class HandlerInvokerTests
 
         Assert.Equal(1, ChatMessageHandlerWithDisposableServices.TestDisposableService.CallCount);
         Assert.Equal(1, ChatMessageHandlerWithDisposableServices.TestDisposableServiceAsync.CallCount);
+    }
+
+    [Fact]
+    public async Task HandlerInvoker_Middleware_IsExecutedInOrderOfRegistration()
+    {
+        var serviceCollection = new ServiceCollection()
+            .AddAWSMessageBus(builder =>
+            {
+                builder.AddMessageHandler<SubscriberMiddlewareModels.SuccessMessageHandler<ChatMessage>, ChatMessage>("sqsQueueUrl");
+
+                builder.AddMiddleware<SubscriberMiddlewareModels.A>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.B>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.C>();
+            });
+
+        var middlwareTracker = new SubscriberMiddlewareModels.MiddlewareTracker();
+        serviceCollection.AddSingleton(middlwareTracker);
+
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var handlerInvoker = new HandlerInvoker(
+            serviceProvider,
+            new NullLogger<HandlerInvoker>(),
+            new DefaultTelemetryFactory(serviceProvider),
+            serviceProvider.GetRequiredService<IMessageConfiguration>());
+
+        var envelope = new MessageEnvelope<ChatMessage>();
+        var subscriberMapping = SubscriberMapping.Create<SubscriberMiddlewareModels.SuccessMessageHandler<ChatMessage>, ChatMessage>();
+        var messageProcessStatus = await handlerInvoker.InvokeAsync(envelope, subscriberMapping);
+
+        Assert.Equal(MessageProcessStatus.Success(), messageProcessStatus);
+
+        Assert.Equal(4, middlwareTracker.Executed.Count);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.A), middlwareTracker.Executed[0]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.B), middlwareTracker.Executed[1]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.C), middlwareTracker.Executed[2]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.SuccessMessageHandler<ChatMessage>), middlwareTracker.Executed[3]);
+    }
+
+    [Fact]
+    public async Task HandlerInvoker_Middleware_MessageProcessStatusIsPropogated()
+    {
+        var serviceCollection = new ServiceCollection()
+            .AddAWSMessageBus(builder =>
+            {
+                builder.AddMessageHandler<SubscriberMiddlewareModels.FailMessageHandler<ChatMessage>, ChatMessage>("sqsQueueUrl");
+
+                builder.AddMiddleware<SubscriberMiddlewareModels.A>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.B>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.C>();
+            });
+
+        var middlwareTracker = new SubscriberMiddlewareModels.MiddlewareTracker();
+        serviceCollection.AddSingleton(middlwareTracker);
+
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var handlerInvoker = new HandlerInvoker(
+            serviceProvider,
+            new NullLogger<HandlerInvoker>(),
+            new DefaultTelemetryFactory(serviceProvider),
+            serviceProvider.GetRequiredService<IMessageConfiguration>());
+
+        var envelope = new MessageEnvelope<ChatMessage>();
+        var subscriberMapping = SubscriberMapping.Create<SubscriberMiddlewareModels.FailMessageHandler<ChatMessage>, ChatMessage>();
+        var messageProcessStatus = await handlerInvoker.InvokeAsync(envelope, subscriberMapping);
+
+        Assert.Equal(MessageProcessStatus.Failed(), messageProcessStatus);
+
+        Assert.Equal(4, middlwareTracker.Executed.Count);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.A), middlwareTracker.Executed[0]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.B), middlwareTracker.Executed[1]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.C), middlwareTracker.Executed[2]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.FailMessageHandler<ChatMessage>), middlwareTracker.Executed[3]);
+    }
+
+
+
+    [Fact]
+    public async Task HandlerInvoker_Middleware_FailureDoesNotContinueChain()
+    {
+        var serviceCollection = new ServiceCollection()
+            .AddAWSMessageBus(builder =>
+            {
+                builder.AddMessageHandler<SubscriberMiddlewareModels.SuccessMessageHandler<ChatMessage>, ChatMessage>("sqsQueueUrl");
+
+                builder.AddMiddleware<SubscriberMiddlewareModels.A>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.Error>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.B>();
+                builder.AddMiddleware<SubscriberMiddlewareModels.C>();
+            });
+
+        var middlwareTracker = new SubscriberMiddlewareModels.MiddlewareTracker();
+        serviceCollection.AddSingleton(middlwareTracker);
+
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var handlerInvoker = new HandlerInvoker(
+            serviceProvider,
+            new NullLogger<HandlerInvoker>(),
+            new DefaultTelemetryFactory(serviceProvider),
+            serviceProvider.GetRequiredService<IMessageConfiguration>());
+
+        var envelope = new MessageEnvelope<ChatMessage>();
+        var subscriberMapping = SubscriberMapping.Create<SubscriberMiddlewareModels.SuccessMessageHandler<ChatMessage>, ChatMessage>();
+        var messageProcessStatus = await handlerInvoker.InvokeAsync(envelope, subscriberMapping);
+
+        Assert.Equal(MessageProcessStatus.Failed(), messageProcessStatus);
+
+        Assert.Equal(2, middlwareTracker.Executed.Count);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.A), middlwareTracker.Executed[0]);
+        Assert.Equal(typeof(SubscriberMiddlewareModels.Error), middlwareTracker.Executed[1]);
     }
 }

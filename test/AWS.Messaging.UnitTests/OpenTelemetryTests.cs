@@ -87,7 +87,8 @@ public class OpenTelemetryTests
         _handler = new HandlerInvoker(
             _serviceProvider,
             new NullLogger<HandlerInvoker>(),
-            new DefaultTelemetryFactory(_serviceProvider));
+            new DefaultTelemetryFactory(_serviceProvider),
+            new MessageConfiguration());
     }
 
     /// <summary>

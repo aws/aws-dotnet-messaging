@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SubscriberService.MessageHandlers;
+using SubscriberService.Middleware;
 using SubscriberService.Models;
 
 await Host.CreateDefaultBuilder(args)
@@ -33,6 +34,8 @@ await Host.CreateDefaultBuilder(args)
             var mpfQueueUrl = context.Configuration["AWS:Resources:MPFQueueUrl"];
             if (string.IsNullOrEmpty(mpfQueueUrl))
                 throw new InvalidOperationException("Missing required configuration parameter 'AWS:Resources:MPFQueueUrl'.");
+
+            builder.AddMiddleware<SampleMiddleware>();
 
             builder.AddSQSPoller(mpfQueueUrl);
             builder.AddMessageHandler<ChatMessageHandler, ChatMessage>("chatMessage");

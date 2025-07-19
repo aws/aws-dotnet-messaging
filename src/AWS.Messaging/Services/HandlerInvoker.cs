@@ -16,6 +16,7 @@ public class HandlerInvoker : IHandlerInvoker
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<HandlerInvoker> _logger;
     private readonly ITelemetryFactory _telemetryFactory;
+    private readonly IMessageConfiguration _messageConfiguration;
 
     /// <summary>
     /// Caches the <see cref="MethodInfo"/> of the <see cref="IMessageHandler{T}.HandleAsync(MessageEnvelope{T}, CancellationToken)"/>
@@ -29,14 +30,17 @@ public class HandlerInvoker : IHandlerInvoker
     /// <param name="serviceProvider">Service provider used to resolve handler objects</param>
     /// <param name="logger">Logger for debugging information</param>
     /// <param name="telemetryFactory">Factory for telemetry data</param>
+    /// <param name="messageConfiguration">Messaging configuration holding middleware configuration</param>
     public HandlerInvoker(
         IServiceProvider serviceProvider,
         ILogger<HandlerInvoker> logger,
-        ITelemetryFactory telemetryFactory)
+        ITelemetryFactory telemetryFactory,
+        IMessageConfiguration messageConfiguration)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _telemetryFactory = telemetryFactory;
+        _messageConfiguration = messageConfiguration;
     }
 
     /// <inheritdoc/>
@@ -83,15 +87,8 @@ public class HandlerInvoker : IHandlerInvoker
 
                     try
                     {
-                        var task = method.Invoke(handler, new object[] { messageEnvelope, token }) as Task<MessageProcessStatus>;
-
-                        if (task == null)
-                        {
-                            _logger.LogError("Unexpected return type for the HandleAsync method on {HandlerType} while handling message ID {MessageEnvelopeId}. Expected {ExpectedType}", subscriberMapping.HandlerType, messageEnvelope.Id, nameof(Task<MessageProcessStatus>));
-                            throw new InvalidMessageHandlerSignatureException($"Unexpected return type for the HandleAsync method on {subscriberMapping.HandlerType} while handling message ID {messageEnvelope.Id}. Expected {nameof(Task<MessageProcessStatus>)}");
-                        }
-
-                        return await task;
+                        var middlewares = _messageConfiguration.SubscriberMiddleware.Select(subscriberMiddleware => (IMiddleware)scope.ServiceProvider.GetRequiredService(subscriberMiddleware.Type)!).ToList();
+                        return await ExecutePipelineAsync(messageEnvelope, subscriberMapping, middlewares, handler, method, subscriberMapping.MiddlewareInvokeAsyncMethodInfo, token).ConfigureAwait(false);
                     }
                     // Since we are invoking HandleAsync via reflection, we need to unwrap the TargetInvocationException
                     // containing application exceptions that happened inside the IMessageHandler
@@ -125,5 +122,45 @@ public class HandlerInvoker : IHandlerInvoker
                 throw;
             }
         }
+    }
+
+    private async Task<MessageProcessStatus> ExecutePipelineAsync(
+        MessageEnvelope messageEnvelope,
+        SubscriberMapping subscriberMapping,
+        IReadOnlyList<IMiddleware> middlewares,
+        object handler,
+        MethodInfo handlerMethod,
+        MethodInfo middlewareMethod,
+        CancellationToken token)
+    {
+        RequestDelegate next = () =>
+        {
+            if (handlerMethod.Invoke(handler, new object[] { messageEnvelope, token }) is not Task<MessageProcessStatus> task)
+            {
+                _logger.LogError("Unexpected return type for the HandleAsync method on {HandlerType} while handling message ID {MessageEnvelopeId}. Expected {ExpectedType}", subscriberMapping.HandlerType, messageEnvelope.Id, nameof(Task<MessageProcessStatus>));
+                throw new InvalidMessageHandlerSignatureException($"Unexpected return type for the HandleAsync method on {subscriberMapping.HandlerType} while handling message ID {messageEnvelope.Id}. Expected {nameof(Task<MessageProcessStatus>)}");
+            }
+
+            return task;
+        };
+
+        for (var i = middlewares.Count - 1; i >= 0; i--)
+        {
+            var capturedNext = next;
+            var middleware = middlewares[i];
+
+            next = () =>
+            {
+                if (middlewareMethod.Invoke(middleware, new object[] { messageEnvelope, capturedNext, token }) is not Task<MessageProcessStatus> task)
+                {
+                    _logger.LogError("Unexpected return type for the InvokeAsync method on {MiddlewareType} while handling message ID {MessageEnvelopeId}. Expected {ExpectedType}", middleware.GetType(), messageEnvelope.Id, nameof(Task<MessageProcessStatus>));
+                    throw new InvalidMessageHandlerSignatureException($"Unexpected return type for the InvokeAsync method on {middleware.GetType()} while handling message ID {messageEnvelope.Id}. Expected {nameof(Task<MessageProcessStatus>)}");
+                }
+
+                return task;
+            };
+        }
+
+        return await next().ConfigureAwait(false);
     }
 }

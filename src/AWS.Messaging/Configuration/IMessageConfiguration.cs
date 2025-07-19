@@ -47,6 +47,11 @@ public interface IMessageConfiguration
     SubscriberMapping? GetSubscriberMapping(string messageTypeIdentifier);
 
     /// <summary>
+    /// Maps the middleware types to be used in order of execution.
+    /// </summary>
+    IList<SubscriberMiddleware> SubscriberMiddleware { get; }
+
+    /// <summary>
     /// List of configurations for subscriber to poll for messages from an AWS service endpoint.
     /// </summary>
     IList<IMessagePollerConfiguration> MessagePollerConfigurations { get; set; }
