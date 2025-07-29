@@ -1,3 +1,8 @@
+## Release 2025-07-29
+
+### AWS.Messaging.Telemetry.OpenTelemetry (1.0.0)
+* This marks the first stable release of AWS Message Processing Framework OTEL for .NET which is now generally available.
+
 ## Release 2025-07-14
 
 ### AWS.Messaging.Lambda (1.0.1)
