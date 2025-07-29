@@ -1,8 +1,6 @@
 # OpenTelemetry plugin for AWS Message Processing Framework for .NET
 [![nuget](https://img.shields.io/nuget/v/AWS.Messaging.Telemetry.OpenTelemetry.svg) ![downloads](https://img.shields.io/nuget/dt/AWS.Messaging.Telemetry.OpenTelemetry.svg)](https://www.nuget.org/packages/AWS.Messaging.Telemetry.OpenTelemetry/)
 
-**Notice:** *This library is in **developer preview**. It provides early access to upcoming features in the **AWS Message Processing Framework for .NET**. Any releases prior to 1.0.0 might include breaking changes.*
-
 This package is an [Instrumentation
 Library](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library), which instruments the [AWS Message Processing Framework for .NET](https://github.com/awslabs/aws-dotnet-messaging) to collect traces about 
 messages that are sent and received.
