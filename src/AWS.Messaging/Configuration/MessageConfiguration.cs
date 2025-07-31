@@ -40,6 +40,9 @@ public class MessageConfiguration : IMessageConfiguration
     }
 
     /// <inheritdoc/>
+    public IList<SubscriberMiddleware> SubscriberMiddleware { get; } = new List<SubscriberMiddleware>();
+
+    /// <inheritdoc/>
     public IList<IMessagePollerConfiguration> MessagePollerConfigurations { get; set; } = new List<IMessagePollerConfiguration>();
 
     /// <inheritdoc/>
