@@ -4,11 +4,12 @@
 using AWS.Messaging.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+
 namespace AWS.Messaging.UnitTests.SerializationTests;
 
-public class EnvelopeSerializerTests : EnvelopeSerializerTestsBase
+public class EnvelopeSerializerUtf8JsonWriterTests : EnvelopeSerializerTestsBase
 {
-    protected override bool EnableExperimentalFeatures => false;
+    protected override bool EnableExperimentalFeatures => true;
 
     [Fact]
     public override void EnvelopeSerializer_RegistersCorrectly()
@@ -21,8 +22,8 @@ public class EnvelopeSerializerTests : EnvelopeSerializerTestsBase
             // ASSERT
             Assert.NotNull(envelopeSerializer);
 
-
-            Assert.IsType<EnvelopeSerializer>(envelopeSerializer);
+            Assert.IsType<EnvelopeSerializerUtf8JsonWriter>(envelopeSerializer);
         }
     }
 }
+

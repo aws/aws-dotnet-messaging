@@ -262,7 +262,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                     envelope.Metadata[property.Name] = property.Value.Clone();
                 }
             }
-
+            
             // Deserialize the message content using the custom serializer
             var dataContent = JsonPropertyHelper.GetRequiredProperty(root, "data", element =>
                 IsJsonContentType(envelope.DataContentType)

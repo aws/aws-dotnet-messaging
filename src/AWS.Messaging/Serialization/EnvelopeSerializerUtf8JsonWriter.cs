@@ -16,11 +16,19 @@ namespace AWS.Messaging.Serialization;
 /// <summary>
 /// The performance based implementation of <see cref="IEnvelopeSerializer"/> used by the framework.
 /// </summary>
-/// <remarks>This is not a production usable version as it avoids current MessageSerializer for demo simplification</remarks>
-internal class EnvelopeSerializerJsonWriter : IEnvelopeSerializer
+internal class EnvelopeSerializerUtf8JsonWriter : IEnvelopeSerializer
 {
     private Uri? MessageSource { get; set; }
     private const string CLOUD_EVENT_SPEC_VERSION = "1.0";
+
+    // Pre-encoded property names to avoid repeated encoding and allocations
+    private static readonly JsonEncodedText s_idProp = JsonEncodedText.Encode("id");
+    private static readonly JsonEncodedText s_sourceProp = JsonEncodedText.Encode("source");
+    private static readonly JsonEncodedText s_specVersionProp = JsonEncodedText.Encode("specversion");
+    private static readonly JsonEncodedText s_typeProp = JsonEncodedText.Encode("type");
+    private static readonly JsonEncodedText s_timeProp = JsonEncodedText.Encode("time");
+    private static readonly JsonEncodedText s_dataContentTypeProp = JsonEncodedText.Encode("datacontenttype");
+    private static readonly JsonEncodedText s_dataProp = JsonEncodedText.Encode("data");
 
     private readonly IMessageConfiguration _messageConfiguration;
     private readonly IMessageSerializer _messageSerializer;
@@ -29,7 +37,7 @@ internal class EnvelopeSerializerJsonWriter : IEnvelopeSerializer
     private readonly IMessageSourceHandler _messageSourceHandler;
     private readonly ILogger<EnvelopeSerializer> _logger;
 
-    private readonly IMessageSerializerUtf8Json? _messageSerializerUtf8Json;
+    private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
 
     // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
     // can be in any order since they check for different, mutually exclusive properties
@@ -40,7 +48,7 @@ internal class EnvelopeSerializerJsonWriter : IEnvelopeSerializer
         new SQSMessageParser() // Fallback parser - must be last
     };
 
-    public EnvelopeSerializerJsonWriter(
+    public EnvelopeSerializerUtf8JsonWriter(
         ILogger<EnvelopeSerializer> logger,
         IMessageConfiguration messageConfiguration,
         IMessageSerializer messageSerializer,
@@ -55,7 +63,7 @@ internal class EnvelopeSerializerJsonWriter : IEnvelopeSerializer
         _messageIdGenerator = messageIdGenerator;
         _messageSourceHandler = messageSourceHandler;
 
-        _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8Json;
+        _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
     }
 
     /// <inheritdoc/>
@@ -96,28 +104,39 @@ internal class EnvelopeSerializerJsonWriter : IEnvelopeSerializer
             T message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
 
             using var buffer = new RentArrayBufferWriter(cleanRentedBuffers: _messageConfiguration.SerializationOptions.CleanRentedBuffers);
-            using var writer = new Utf8JsonWriter(buffer);
+            using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
+            {
+                // We control the JSON shape here, so skip validation for performance
+                SkipValidation = true
+            });
 
             writer.WriteStartObject();
 
-            writer.WriteString("id", envelope.Id);
-            writer.WriteString("source", envelope.Source?.ToString());
-            writer.WriteString("specversion", envelope.Version);
-            writer.WriteString("type", envelope.MessageTypeIdentifier);
-            writer.WriteString("time", envelope.TimeStamp);
+            writer.WriteString(s_idProp, envelope.Id);
+            writer.WriteString(s_sourceProp, envelope.Source?.OriginalString);
+            writer.WriteString(s_specVersionProp, envelope.Version);
+            writer.WriteString(s_typeProp, envelope.MessageTypeIdentifier);
+            writer.WriteString(s_timeProp, envelope.TimeStamp);
 
             if (_messageSerializerUtf8Json is not null)
             {
-                writer.WriteString("datacontenttype", _messageSerializerUtf8Json.ContentType);
-                writer.WritePropertyName("data");
+                writer.WriteString(s_dataContentTypeProp, _messageSerializerUtf8Json.ContentType);
+                writer.WritePropertyName(s_dataProp);
                 _messageSerializerUtf8Json.SerializeToBuffer(writer, message);
             }
             else
             {
                 var response = _messageSerializer.Serialize(message);
-                writer.WriteString("datacontenttype", response.ContentType);
-                writer.WritePropertyName("data");
-                writer.WriteRawValue(response.Data, true);
+                writer.WriteString(s_dataContentTypeProp, response.ContentType);
+                writer.WritePropertyName(s_dataProp);
+                if (IsJsonContentType(response.ContentType))
+                {
+                    writer.WriteRawValue(response.Data, skipInputValidation: true);
+                }
+                else
+                {
+                    writer.WriteStringValue(response.Data);
+                }
             }
 
             // Write metadata as top-level properties
