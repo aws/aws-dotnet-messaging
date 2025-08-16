@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Implement Utf8JsonWriter based serializer"
+      ]
+    }
+  ]
+}
