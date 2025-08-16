@@ -23,6 +23,14 @@ public class SerializationOptions
     };
 
     /// <summary>
+    /// When set to true, it will clean the rented buffers after each use.
+    /// </summary>
+    /// <remarks>
+    /// Setting this to false can improve performance in high-throughput scenarios at cost of potential security issues
+    /// </remarks>
+    public bool CleanRentedBuffers { get; set; } = true;
+
+    /// <summary>
     /// Default constructor
     /// </summary>
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050",

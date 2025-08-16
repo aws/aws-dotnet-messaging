@@ -1,26 +1,34 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Collections.Frozen;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization.Helpers;
-using AWS.Messaging.Internal;
+using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.Logging;
-using AWS.Messaging.Serialization.Parsers;
-using System.Collections.Frozen;
 
 namespace AWS.Messaging.Serialization;
 
 /// <summary>
-/// The default implementation of <see cref="IEnvelopeSerializer"/> used by the framework.
+/// The performance based implementation of <see cref="IEnvelopeSerializer"/> used by the framework.
 /// </summary>
-internal class EnvelopeSerializer : IEnvelopeSerializer
+internal class EnvelopeSerializerUtf8JsonWriter : IEnvelopeSerializer
 {
     private Uri? MessageSource { get; set; }
     private const string CLOUD_EVENT_SPEC_VERSION = "1.0";
+
+    // Pre-encoded property names to avoid repeated encoding and allocations
+    private static readonly JsonEncodedText s_idProp = JsonEncodedText.Encode("id");
+    private static readonly JsonEncodedText s_sourceProp = JsonEncodedText.Encode("source");
+    private static readonly JsonEncodedText s_specVersionProp = JsonEncodedText.Encode("specversion");
+    private static readonly JsonEncodedText s_typeProp = JsonEncodedText.Encode("type");
+    private static readonly JsonEncodedText s_timeProp = JsonEncodedText.Encode("time");
+    private static readonly JsonEncodedText s_dataContentTypeProp = JsonEncodedText.Encode("datacontenttype");
+    private static readonly JsonEncodedText s_dataProp = JsonEncodedText.Encode("data");
 
     private readonly IMessageConfiguration _messageConfiguration;
     private readonly IMessageSerializer _messageSerializer;
@@ -28,6 +36,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     private readonly IMessageIdGenerator _messageIdGenerator;
     private readonly IMessageSourceHandler _messageSourceHandler;
     private readonly ILogger<EnvelopeSerializer> _logger;
+
+    private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
 
     // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
     // can be in any order since they check for different, mutually exclusive properties
@@ -38,7 +48,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         new SQSMessageParser() // Fallback parser - must be last
     };
 
-    public EnvelopeSerializer(
+    public EnvelopeSerializerUtf8JsonWriter(
         ILogger<EnvelopeSerializer> logger,
         IMessageConfiguration messageConfiguration,
         IMessageSerializer messageSerializer,
@@ -52,6 +62,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _dateTimeHandler = dateTimeHandler;
         _messageIdGenerator = messageIdGenerator;
         _messageSourceHandler = messageSourceHandler;
+
+        _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
     }
 
     /// <inheritdoc/>
@@ -83,55 +95,67 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         };
     }
 
-    /// <summary>
-    /// Serializes the <see cref="MessageEnvelope{T}"/> into a raw string representing a JSON blob
-    /// </summary>
-    /// <typeparam name="T">The .NET type of the underlying application message held by <see cref="MessageEnvelope{T}.Message"/></typeparam>
-    /// <param name="envelope">The <see cref="MessageEnvelope{T}"/> instance that will be serialized</param>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "<Pending>")]
     public async ValueTask<string> SerializeAsync<T>(MessageEnvelope<T> envelope)
     {
         try
         {
             await InvokePreSerializationCallback(envelope);
-            var message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
+            T message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
 
-            // This blob serves as an intermediate data container because the underlying application message
-            // must be serialized separately as the _messageSerializer can have a user injected implementation.
-            var blob = new JsonObject
+            using var buffer = new RentArrayBufferWriter(cleanRentedBuffers: _messageConfiguration.SerializationOptions.CleanRentedBuffers);
+            using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
             {
-                ["id"] = envelope.Id,
-                ["source"] = envelope.Source?.ToString(),
-                ["specversion"] = envelope.Version,
-                ["type"] = envelope.MessageTypeIdentifier,
-                ["time"] = envelope.TimeStamp
-            };
+                // We control the JSON shape here, so skip validation for performance
+                SkipValidation = true
+            });
 
-            var messageSerializerResults = _messageSerializer.Serialize(message);
+            writer.WriteStartObject();
 
-            blob["datacontenttype"] = messageSerializerResults.ContentType;
+            writer.WriteString(s_idProp, envelope.Id);
+            writer.WriteString(s_sourceProp, envelope.Source?.OriginalString);
+            writer.WriteString(s_specVersionProp, envelope.Version);
+            writer.WriteString(s_typeProp, envelope.MessageTypeIdentifier);
+            writer.WriteString(s_timeProp, envelope.TimeStamp);
 
-            if (IsJsonContentType(messageSerializerResults.ContentType))
+            if (_messageSerializerUtf8Json is not null)
             {
-                blob["data"] = JsonNode.Parse(messageSerializerResults.Data);
+                writer.WriteString(s_dataContentTypeProp, _messageSerializerUtf8Json.ContentType);
+                writer.WritePropertyName(s_dataProp);
+                _messageSerializerUtf8Json.SerializeToBuffer(writer, message);
             }
             else
             {
-                blob["data"] = messageSerializerResults.Data;
-
-            }
-
-            // Write any Metadata as top-level keys
-            // This may be useful for any extensions defined in
-            // https://github.com/cloudevents/spec/tree/main/cloudevents/extensions
-            foreach (var key in envelope.Metadata.Keys)
-            {
-                if (!blob.ContainsKey(key)) // don't overwrite any reserved keys
+                var response = _messageSerializer.Serialize(message);
+                writer.WriteString(s_dataContentTypeProp, response.ContentType);
+                writer.WritePropertyName(s_dataProp);
+                if (IsJsonContentType(response.ContentType))
                 {
-                    blob[key] = JsonSerializer.SerializeToNode(envelope.Metadata[key], typeof(JsonElement), MessagingJsonSerializerContext.Default);
+                    writer.WriteRawValue(response.Data, skipInputValidation: true);
+                }
+                else
+                {
+                    writer.WriteStringValue(response.Data);
                 }
             }
 
-            var jsonString = blob.ToJsonString();
+            // Write metadata as top-level properties
+            foreach (var kvp in envelope.Metadata)
+            {
+                if (kvp.Key is not null &&
+                    kvp.Value.ValueKind != JsonValueKind.Undefined &&
+                    kvp.Value.ValueKind != JsonValueKind.Null &&
+                    !s_knownEnvelopeProperties.Contains(kvp.Key))
+                {
+                    writer.WritePropertyName(kvp.Key);
+                    kvp.Value.WriteTo(writer);
+                }
+            }
+
+            writer.WriteEndObject();
+            writer.Flush();
+
+            var jsonString = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
             var serializedMessage = await InvokePostSerializationCallback(jsonString);
 
             if (_messageConfiguration.LogMessageContent)
@@ -233,7 +257,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         "data"
     }.ToFrozenSet();
 
-    private  (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
+    private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
     {
         using var document = JsonDocument.Parse(envelopeString);
         var root = document.RootElement;
@@ -262,7 +286,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                     envelope.Metadata[property.Name] = property.Value.Clone();
                 }
             }
-            
+
             // Deserialize the message content using the custom serializer
             var dataContent = JsonPropertyHelper.GetRequiredProperty(root, "data", element =>
                 IsJsonContentType(envelope.DataContentType)
