@@ -1,148 +1,26 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
-using Amazon.SQS.Model;
-using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
-using AWS.Messaging.Services;
-using AWS.Messaging.UnitTests.MessageHandlers;
-using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
-
 namespace AWS.Messaging.UnitTests.SerializationTests;
 
-public class EnvelopeSerializerTests
+public class EnvelopeSerializerTests : EnvelopeSerializerTestsBase
 {
-    private readonly IServiceCollection _serviceCollection;
-    private readonly DateTimeOffset _testdate = new DateTime(year: 2000, month: 12, day: 5, hour: 10, minute: 30, second: 55, DateTimeKind.Utc);
-
-    public EnvelopeSerializerTests()
-    {
-        _serviceCollection = new ServiceCollection();
-        _serviceCollection.AddLogging();
-        _serviceCollection.AddAWSMessageBus(builder =>
-        {
-            builder.AddSQSPublisher<AddressInfo>("sqsQueueUrl", "addressInfo");
-            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>("addressInfo");
-            builder.AddMessageHandler<PlainTextHandler, string>("plaintext");
-            builder.AddMessageSource("/aws/messaging");
-        });
-
-        var mockDateTimeHandler = new Mock<IDateTimeHandler>();
-        mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
-        _serviceCollection.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
-    }
+    protected override bool EnableExperimentalFeatures => false;
 
     [Fact]
-    public async Task CreateEnvelope()
+    public override void EnvelopeSerializer_RegistersCorrectly()
     {
-        // ARRANGE
-        var serviceProvider = _serviceCollection.BuildServiceProvider();
-        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
-        var message = new AddressInfo
         {
-            Street = "Prince St",
-            Unit = 123,
-            ZipCode = "00001"
-        };
+            // ARRANGE
+            var serviceProvider = _serviceCollection.BuildServiceProvider();
+            // ACT
+            var envelopeSerializer = serviceProvider.GetService<IEnvelopeSerializer>();
+            // ASSERT
+            Assert.NotNull(envelopeSerializer);
 
-        // ACT
-        var envelope = await envelopeSerializer.CreateEnvelopeAsync(message);
-
-        // ASSERT
-        Assert.NotNull(envelope);
-        Assert.Equal(_testdate, envelope.TimeStamp);
-        Assert.Equal("1.0", envelope.Version);
-        Assert.Equal("/aws/messaging", envelope.Source?.ToString());
-        Assert.Equal("addressInfo", envelope.MessageTypeIdentifier);
-
-        var addressInfo = envelope.Message;
-        Assert.Equal("Prince St", addressInfo?.Street);
-        Assert.Equal(123, addressInfo?.Unit);
-        Assert.Equal("00001", addressInfo?.ZipCode);
-    }
-
-    [Fact]
-    public async Task CreateEnvelope_MissingPublisherMapping_ThrowsException()
-    {
-        // ARRANGE
-        var serviceProvider = _serviceCollection.BuildServiceProvider();
-        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
-
-        var message = new ChatMessage
-        {
-            MessageDescription = "This is a test message"
-        };
-
-        // ACT and ASSERT
-        // This throws an exception since no publisher is configured against the ChatMessage type.
-        await Assert.ThrowsAsync<FailedToCreateMessageEnvelopeException>(async () => await envelopeSerializer.CreateEnvelopeAsync(message));
-    }
-
-
-    [Fact]
-    public async Task SerializeEnvelope()
-    {
-        // ARRANGE
-        var message = new AddressInfo
-        {
-            Street = "Prince St",
-            Unit = 123,
-            ZipCode = "00001"
-        };
-
-        var envelope = new MessageEnvelope<AddressInfo>
-        {
-            Id =  "id-123",
-            Source = new Uri("/backend/service", UriKind.Relative),
-            Version = "1.0",
-            MessageTypeIdentifier = "addressInfo",
-            TimeStamp = _testdate,
-            Message = message
-        };
-
-        var serviceProvider = _serviceCollection.BuildServiceProvider();
-        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
-
-        // ACT
-        var jsonBlob = await envelopeSerializer.SerializeAsync(envelope);
-
-        // ASSERT
-        // The \u0022 corresponds to quotation mark (")
-        var expectedBlob = "{\"id\":\"id-123\",\"source\":\"/backend/service\",\"specversion\":\"1.0\",\"type\":\"addressInfo\",\"time\":\"2000-12-05T10:30:55+00:00\",\"datacontenttype\":\"application/json\",\"data\":{\"Unit\":123,\"Street\":\"Prince St\",\"ZipCode\":\"00001\"}}";
-        Assert.Equal(expectedBlob, jsonBlob);
-    }
-
-    [Fact]
-    public async Task ConvertToEnvelope_NoOuterEnvelope_In_SQSMessageBody()
-    {
-        // ARRANGE
-        var serviceProvider = _serviceCollection.BuildServiceProvider();
-        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
-        var messageEnvelope = new MessageEnvelope<AddressInfo>
-        {
-            Id = "66659d05-e4ff-462f-81c4-09e560e66a5c",
-            Source = new Uri("/aws/messaging", UriKind.Relative),
-            Version = "1.0",
-            MessageTypeIdentifier = "addressInfo",
-            TimeStamp = _testdate,
-            Message = new AddressInfo
-            {
-                Street = "Prince St",
-                Unit = 123,
-                ZipCode = "00001"
-            }
 
         };
         var sqsMessage = new Message

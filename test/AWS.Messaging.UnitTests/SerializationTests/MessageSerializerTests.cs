@@ -12,7 +12,6 @@ using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Newtonsoft.Json;
 using Xunit;
 
 namespace AWS.Messaging.UnitTests.SerializationTests;

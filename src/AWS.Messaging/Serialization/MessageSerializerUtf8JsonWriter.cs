@@ -10,16 +10,16 @@ using Microsoft.Extensions.Logging;
 namespace AWS.Messaging.Serialization;
 
 /// <summary>
-/// This is the default implementation of <see cref="IMessageSerializer"/> used by the framework.
+/// This is the performance based implementation of <see cref="IMessageSerializer"/> used by the framework.
 /// It uses System.Text.Json to serialize and deserialize messages.
 /// </summary>
-internal sealed partial class MessageSerializerUtf8Json : IMessageSerializerUtf8Json
+internal sealed partial class MessageSerializerUtf8JsonWriter : IMessageSerializer, IMessageSerializerUtf8JsonWriter
 {
-    private readonly ILogger<MessageSerializer> _logger;
+    private readonly ILogger<MessageSerializerUtf8JsonWriter> _logger;
     private readonly IMessageConfiguration _messageConfiguration;
     private readonly JsonSerializerContext? _jsonSerializerContext;
 
-    public MessageSerializerUtf8Json(ILogger<MessageSerializer> logger, IMessageConfiguration messageConfiguration, IMessageJsonSerializerContextContainer jsonContextContainer)
+    public MessageSerializerUtf8JsonWriter(ILogger<MessageSerializerUtf8JsonWriter> logger, IMessageConfiguration messageConfiguration, IMessageJsonSerializerContextContainer jsonContextContainer)
     {
         _logger = logger;
         _messageConfiguration= messageConfiguration;
@@ -126,7 +126,7 @@ internal sealed partial class MessageSerializerUtf8Json : IMessageSerializerUtf8
         {
             var typeInfo = _jsonSerializerContext?.GetTypeInfo(typeof(T));
             var startPosition = writer.BytesCommitted;
-            if (typeInfo != null)
+            if (typeInfo is not null)
             {
                 JsonSerializer.Serialize(writer, value, typeInfo);
             }
@@ -152,28 +152,28 @@ internal sealed partial class MessageSerializerUtf8Json : IMessageSerializerUtf8
 
     internal static partial class Logs
     {
-        [LoggerMessage(EventId = 1, Level = LogLevel.Trace, Message = "Deserializing the following message into type '{DeserializedType}':\n{Message}")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Trace, Message = "Deserializing the following message into type '{DeserializedType}':\n{Message}")]
         public static partial void DeserializingMessageWithContent(ILogger logger, Type deserializedType, string message);
 
-        [LoggerMessage(EventId = 2, Level = LogLevel.Trace, Message = "Deserializing the following message into type '{DeserializedType}'")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Trace, Message = "Deserializing the following message into type '{DeserializedType}'")]
         public static partial void DeserializingMessage(ILogger logger, Type deserializedType);
 
-        [LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "Failed to deserialize application message into an instance of {DeserializedType}.")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Error, Message = "Failed to deserialize application message into an instance of {DeserializedType}.")]
         public static partial void FailedToDeserializeMessage(ILogger logger, Type deserializedType);
 
-        [LoggerMessage(EventId = 4, Level = LogLevel.Error, Message = "Failed to deserialize application message into an instance of {DeserializedType}.")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Error, Message = "Failed to deserialize application message into an instance of {DeserializedType}.")]
         public static partial void FailedToDeserializeMessageException(ILogger logger, Exception ex, Type deserializedType);
 
-        [LoggerMessage(EventId = 5, Level = LogLevel.Trace, Message = "Serialized the message object as the following raw string:\n{JsonString}")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Trace, Message = "Serialized the message object as the following raw string:\n{JsonString}")]
         public static partial void SerializedMessageWithContent(ILogger logger, string jsonString);
 
-        [LoggerMessage(EventId = 6, Level = LogLevel.Trace, Message = "Serialized the message object to a raw string with a content length of {ContentLength}.")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Trace, Message = "Serialized the message object to a raw string with a content length of {ContentLength}.")]
         public static partial void SerializedMessage(ILogger logger, long contentLength);
 
-        [LoggerMessage(EventId = 7, Level = LogLevel.Error, Message = "Failed to serialize application message into a string")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Error, Message = "Failed to serialize application message into a string")]
         public static partial void FailedToSerializeMessage(ILogger logger);
 
-        [LoggerMessage(EventId = 8, Level = LogLevel.Error, Message = "Failed to serialize application message into a string")]
+        [LoggerMessage(EventId = 0, Level = LogLevel.Error, Message = "Failed to serialize application message into a string")]
         public static partial void FailedToSerializeMessageException(ILogger logger, Exception ex);
     }
 }

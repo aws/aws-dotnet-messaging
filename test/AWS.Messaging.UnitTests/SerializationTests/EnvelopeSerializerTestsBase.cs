@@ -22,12 +22,14 @@ using Xunit;
 
 namespace AWS.Messaging.UnitTests.SerializationTests;
 
-public class EnvelopeSerializerJsonWriterTests
+public abstract class EnvelopeSerializerTestsBase
 {
-    private readonly IServiceCollection _serviceCollection;
+    protected readonly IServiceCollection _serviceCollection;
     private readonly DateTimeOffset _testdate = new DateTime(year: 2000, month: 12, day: 5, hour: 10, minute: 30, second: 55, DateTimeKind.Utc);
 
-    public EnvelopeSerializerJsonWriterTests()
+    protected abstract bool EnableExperimentalFeatures { get; }
+
+    public EnvelopeSerializerTestsBase()
     {
         _serviceCollection = new ServiceCollection();
         _serviceCollection.AddLogging();
@@ -37,13 +39,18 @@ public class EnvelopeSerializerJsonWriterTests
             builder.AddMessageHandler<AddressInfoHandler, AddressInfo>("addressInfo");
             builder.AddMessageHandler<PlainTextHandler, string>("plaintext");
             builder.AddMessageSource("/aws/messaging");
-            builder.EnableExperimentalFeatures();
+            if (EnableExperimentalFeatures)
+            {
+                builder.EnableExperimentalFeatures();
+            }
         });
 
         var mockDateTimeHandler = new Mock<IDateTimeHandler>();
         mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
         _serviceCollection.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
     }
+
+    public abstract void EnvelopeSerializer_RegistersCorrectly();
 
     [Fact]
     public async Task CreateEnvelope()
@@ -105,7 +112,7 @@ public class EnvelopeSerializerJsonWriterTests
 
         var envelope = new MessageEnvelope<AddressInfo>
         {
-            Id =  "id-123",
+            Id = "id-123",
             Source = new Uri("/backend/service", UriKind.Relative),
             Version = "1.0",
             MessageTypeIdentifier = "addressInfo",
@@ -878,5 +885,36 @@ public class EnvelopeSerializerJsonWriterTests
             x => x.Deserialize(It.IsAny<string>(), typeof(AddressInfo)),
             Times.Once);
     }
+
+
+
 }
 
+public class MockSerializationCallback : ISerializationCallback
+{
+    public ValueTask PreSerializationAsync(MessageEnvelope messageEnvelope)
+    {
+        messageEnvelope.Metadata["Is-Delivered"] = JsonSerializer.SerializeToElement(false);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<string> PostSerializationAsync(string message)
+    {
+        var bytes = Encoding.UTF8.GetBytes(message);
+        var encodedString = Convert.ToBase64String(bytes);
+        return new ValueTask<string>(encodedString);
+    }
+
+    public ValueTask<string> PreDeserializationAsync(string message)
+    {
+        var bytes = Convert.FromBase64String(message);
+        var decodedString = Encoding.UTF8.GetString(bytes);
+        return new ValueTask<string>(decodedString);
+    }
+
+    public ValueTask PostDeserializationAsync(MessageEnvelope messageEnvelope)
+    {
+        messageEnvelope.Metadata["Is-Delivered"] = JsonSerializer.SerializeToElement(true);
+        return ValueTask.CompletedTask;
+    }
+}
