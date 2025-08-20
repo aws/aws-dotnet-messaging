@@ -95,6 +95,12 @@ internal class EnvelopeSerializerUtf8JsonWriter : IEnvelopeSerializer
         };
     }
 
+    private static readonly JsonWriterOptions s_serializerWriterOptions = new()
+    {
+        // We control the JSON shape here, so skip validation for performance
+        SkipValidation = true,
+    };
+
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "<Pending>")]
     public async ValueTask<string> SerializeAsync<T>(MessageEnvelope<T> envelope)
     {
@@ -104,11 +110,7 @@ internal class EnvelopeSerializerUtf8JsonWriter : IEnvelopeSerializer
             T message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
 
             using var buffer = new RentArrayBufferWriter(cleanRentedBuffers: _messageConfiguration.SerializationOptions.CleanRentedBuffers);
-            using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
-            {
-                // We control the JSON shape here, so skip validation for performance
-                SkipValidation = true
-            });
+            using var writer = new Utf8JsonWriter(buffer, s_serializerWriterOptions);
 
             writer.WriteStartObject();
 

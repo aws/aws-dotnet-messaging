@@ -8,28 +8,28 @@ Unknown processor
 
 
 ```
-| Method                                    | ItemCount | Mean         | Error     | StdDev    | Median       | Ratio | RatioSD | Gen0    | Gen1    | Gen2    | Allocated | Alloc Ratio |
-|------------------------------------------ |---------- |-------------:|----------:|----------:|-------------:|------:|--------:|--------:|--------:|--------:|----------:|------------:|
-| **StandardSerializer**                        | **1**         |   **1,047.7 ns** |   **9.08 ns** |   **8.49 ns** |   **1,047.1 ns** |  **1.00** |    **0.00** |  **0.1240** |       **-** |       **-** |    **2368 B** |        **1.00** |
-| StandardSerializerWithJsonContext         | 1         |     941.7 ns |   2.85 ns |   2.67 ns |     942.0 ns |  0.90 |    0.01 |  0.1087 |       - |       - |    2056 B |        0.87 |
-| JsonWriterSerializer                      | 1         |     458.4 ns |   2.27 ns |   2.12 ns |     458.6 ns |  0.44 |    0.00 |  0.0548 |       - |       - |    1040 B |        0.44 |
-| JsonWriterSerializerWithJsonContext       | 1         |     357.0 ns |   1.71 ns |   1.60 ns |     357.4 ns |  0.34 |    0.00 |  0.0386 |       - |       - |     728 B |        0.31 |
-| JsonWriterSerializerWithJsonContextUnsafe | 1         |     276.4 ns |   0.64 ns |   0.57 ns |     276.3 ns |  0.26 |    0.00 |  0.0386 |       - |       - |     728 B |        0.31 |
-|                                           |           |              |           |           |              |       |         |         |         |         |           |             |
-| **StandardSerializer**                        | **10**        |   **3,162.9 ns** |  **19.17 ns** |  **17.93 ns** |   **3,168.6 ns** |  **1.00** |    **0.00** |  **0.2861** |       **-** |       **-** |    **5432 B** |        **1.00** |
-| StandardSerializerWithJsonContext         | 10        |   2,617.0 ns |   6.00 ns |   5.61 ns |   2,616.1 ns |  0.83 |    0.01 |  0.2708 |       - |       - |    5120 B |        0.94 |
-| JsonWriterSerializer                      | 10        |   1,112.1 ns |   5.10 ns |   4.26 ns |   1,112.6 ns |  0.35 |    0.00 |  0.1011 |       - |       - |    1920 B |        0.35 |
-| JsonWriterSerializerWithJsonContext       | 10        |     696.2 ns |   2.06 ns |   1.92 ns |     695.8 ns |  0.22 |    0.00 |  0.0849 |       - |       - |    1608 B |        0.30 |
-| JsonWriterSerializerWithJsonContextUnsafe | 10        |     598.4 ns |   4.37 ns |   4.09 ns |     599.8 ns |  0.19 |    0.00 |  0.0849 |       - |       - |    1608 B |        0.30 |
-|                                           |           |              |           |           |              |       |         |         |         |         |           |             |
-| **StandardSerializer**                        | **100**       |  **27,274.1 ns** | **491.14 ns** | **820.58 ns** |  **27,431.5 ns** |  **1.00** |    **0.00** |  **1.9531** |  **0.1526** |       **-** |   **37032 B** |        **1.00** |
-| StandardSerializerWithJsonContext         | 100       |  19,778.3 ns | 389.58 ns | 702.49 ns |  19,639.0 ns |  0.73 |    0.04 |  1.9226 |  0.1526 |       - |   36720 B |        0.99 |
-| JsonWriterSerializer                      | 100       |   7,880.9 ns | 157.43 ns | 303.32 ns |   7,744.5 ns |  0.29 |    0.01 |  0.5798 |       - |       - |   11104 B |        0.30 |
-| JsonWriterSerializerWithJsonContext       | 100       |   4,023.4 ns |  80.33 ns | 222.61 ns |   3,955.4 ns |  0.15 |    0.01 |  0.5722 |       - |       - |   10792 B |        0.29 |
-| JsonWriterSerializerWithJsonContextUnsafe | 100       |   3,617.6 ns |  35.00 ns |  32.74 ns |   3,600.0 ns |  0.13 |    0.01 |  0.5722 |       - |       - |   10792 B |        0.29 |
-|                                           |           |              |           |           |              |       |         |         |         |         |           |             |
-| **StandardSerializer**                        | **1000**      | **274,182.0 ns** | **752.42 ns** | **667.00 ns** | **274,142.0 ns** |  **1.00** |    **0.00** | **96.6797** | **96.6797** | **96.6797** |  **361993 B** |        **1.00** |
-| StandardSerializerWithJsonContext         | 1000      | 238,880.0 ns | 441.12 ns | 391.04 ns | 238,938.5 ns |  0.87 |    0.00 | 96.6797 | 96.6797 | 96.6797 |  361681 B |        1.00 |
-| JsonWriterSerializer                      | 1000      | 101,512.4 ns | 260.47 ns | 243.65 ns | 101,461.8 ns |  0.37 |    0.00 | 33.3252 | 33.3252 | 33.3252 |  106538 B |        0.29 |
-| JsonWriterSerializerWithJsonContext       | 1000      |  69,257.1 ns | 267.03 ns | 222.98 ns |  69,241.4 ns |  0.25 |    0.00 | 33.3252 | 33.3252 | 33.3252 |  106226 B |        0.29 |
-| JsonWriterSerializerWithJsonContextUnsafe | 1000      |  69,293.8 ns | 320.33 ns | 299.64 ns |  69,175.4 ns |  0.25 |    0.00 | 33.3252 | 33.3252 | 33.3252 |  106226 B |        0.29 |
+| Method                                    | ItemCount | Mean         | Error       | StdDev      | Ratio | Gen0    | Gen1    | Gen2    | Allocated | Alloc Ratio |
+|------------------------------------------ |---------- |-------------:|------------:|------------:|------:|--------:|--------:|--------:|----------:|------------:|
+| **StandardSerializer**                        | **1**         |   **1,046.8 ns** |     **2.09 ns** |     **1.85 ns** |  **1.00** |  **0.1240** |       **-** |       **-** |    **2368 B** |        **1.00** |
+| StandardSerializerWithJsonContext         | 1         |     931.3 ns |     1.58 ns |     1.32 ns |  0.89 |  0.1087 |       - |       - |    2056 B |        0.87 |
+| JsonWriterSerializer                      | 1         |     480.6 ns |     2.31 ns |     2.16 ns |  0.46 |  0.0544 |       - |       - |    1040 B |        0.44 |
+| JsonWriterSerializerWithJsonContext       | 1         |     376.9 ns |     0.68 ns |     0.64 ns |  0.36 |  0.0386 |       - |       - |     728 B |        0.31 |
+| JsonWriterSerializerWithJsonContextUnsafe | 1         |     279.2 ns |     0.75 ns |     0.67 ns |  0.27 |  0.0386 |       - |       - |     728 B |        0.31 |
+|                                           |           |              |             |             |       |         |         |         |           |             |
+| **StandardSerializer**                        | **10**        |   **3,178.0 ns** |     **6.32 ns** |     **5.91 ns** |  **1.00** |  **0.2861** |       **-** |       **-** |    **5432 B** |        **1.00** |
+| StandardSerializerWithJsonContext         | 10        |   2,640.6 ns |     7.66 ns |     7.16 ns |  0.83 |  0.2708 |       - |       - |    5120 B |        0.94 |
+| JsonWriterSerializer                      | 10        |   1,274.2 ns |     4.00 ns |     3.74 ns |  0.40 |  0.1011 |       - |       - |    1920 B |        0.35 |
+| JsonWriterSerializerWithJsonContext       | 10        |     817.5 ns |     2.35 ns |     2.20 ns |  0.26 |  0.0849 |       - |       - |    1608 B |        0.30 |
+| JsonWriterSerializerWithJsonContextUnsafe | 10        |     618.9 ns |     1.66 ns |     1.55 ns |  0.19 |  0.0849 |       - |       - |    1608 B |        0.30 |
+|                                           |           |              |             |             |       |         |         |         |           |             |
+| **StandardSerializer**                        | **100**       |  **26,593.8 ns** |   **144.59 ns** |   **135.25 ns** |  **1.00** |  **1.9531** |  **0.1526** |       **-** |   **37032 B** |        **1.00** |
+| StandardSerializerWithJsonContext         | 100       |  22,249.2 ns |    66.56 ns |    59.01 ns |  0.84 |  1.9226 |  0.1526 |       - |   36720 B |        0.99 |
+| JsonWriterSerializer                      | 100       |   7,252.0 ns |    39.25 ns |    36.72 ns |  0.27 |  0.5875 |       - |       - |   11104 B |        0.30 |
+| JsonWriterSerializerWithJsonContext       | 100       |   3,822.7 ns |    17.19 ns |    16.08 ns |  0.14 |  0.5722 |       - |       - |   10792 B |        0.29 |
+| JsonWriterSerializerWithJsonContextUnsafe | 100       |   3,530.0 ns |     8.45 ns |     7.05 ns |  0.13 |  0.5722 |       - |       - |   10792 B |        0.29 |
+|                                           |           |              |             |             |       |         |         |         |           |             |
+| **StandardSerializer**                        | **1000**      | **311,337.5 ns** | **1,470.11 ns** | **1,303.22 ns** |  **1.00** | **96.6797** | **96.6797** | **96.6797** |  **361993 B** |        **1.00** |
+| StandardSerializerWithJsonContext         | 1000      | 277,978.3 ns |   653.26 ns |   579.10 ns |  0.89 | 96.6797 | 96.6797 | 96.6797 |  361681 B |        1.00 |
+| JsonWriterSerializer                      | 1000      | 103,399.2 ns |   234.08 ns |   207.51 ns |  0.33 | 33.3252 | 33.3252 | 33.3252 |  106538 B |        0.29 |
+| JsonWriterSerializerWithJsonContext       | 1000      |  69,779.9 ns |   146.32 ns |   136.87 ns |  0.22 | 33.3252 | 33.3252 | 33.3252 |  106226 B |        0.29 |
+| JsonWriterSerializerWithJsonContextUnsafe | 1000      |  70,258.7 ns |   208.98 ns |   195.48 ns |  0.23 | 33.3252 | 33.3252 | 33.3252 |  106226 B |        0.29 |

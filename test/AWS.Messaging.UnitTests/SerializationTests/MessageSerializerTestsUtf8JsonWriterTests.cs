@@ -297,7 +297,7 @@ public class MessageSerializerUtf8JsonWriterTests
             }
         };
 
-        var buffer = new ArrayBufferWriter<byte>();
+        var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         // ACT
@@ -333,14 +333,13 @@ public class MessageSerializerUtf8JsonWriterTests
             }
         };
 
-        var buffer = new ArrayBufferWriter<byte>();
+        var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         serializer.SerializeToBuffer(writer, person);
         writer.Flush();
 
-        var jsonString = Encoding.UTF8.GetString(buffer.WrittenSpan);
-        var contentLength = Encoding.UTF8.GetByteCount(jsonString);
+        var contentLength = buffer.WrittenSpan.Length;
 
         Assert.Equal(1, _logger.Collector.Count);
         var lastRecord = _logger.LatestRecord;
@@ -371,7 +370,7 @@ public class MessageSerializerUtf8JsonWriterTests
             }
         };
 
-        var buffer = new ArrayBufferWriter<byte>();
+        var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         serializer.SerializeToBuffer(writer, person);
@@ -400,7 +399,7 @@ public class MessageSerializerUtf8JsonWriterTests
         unsupportedType1.Type = unsupportedType2;
         unsupportedType2.Type = unsupportedType1;
 
-        var buffer = new ArrayBufferWriter<byte>();
+        var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));
@@ -422,7 +421,7 @@ public class MessageSerializerUtf8JsonWriterTests
         unsupportedType1.Type = unsupportedType2;
         unsupportedType2.Type = unsupportedType1;
 
-        var buffer = new ArrayBufferWriter<byte>();
+        var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));

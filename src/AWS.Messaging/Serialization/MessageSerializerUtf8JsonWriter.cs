@@ -125,7 +125,10 @@ internal sealed partial class MessageSerializerUtf8JsonWriter : IMessageSerializ
         try
         {
             var typeInfo = _jsonSerializerContext?.GetTypeInfo(typeof(T));
+
+            writer.Flush();
             var startPosition = writer.BytesCommitted;
+
             if (typeInfo is not null)
             {
                 JsonSerializer.Serialize(writer, value, typeInfo);
@@ -136,6 +139,7 @@ internal sealed partial class MessageSerializerUtf8JsonWriter : IMessageSerializ
                 JsonSerializer.Serialize(writer, value, _messageConfiguration.SerializationOptions.SystemTextJsonOptions);
             }
 
+            writer.Flush();
             Logs.SerializedMessage(_logger, writer.BytesCommitted - startPosition);
         }
         catch (JsonException) when (!_messageConfiguration.LogMessageContent)
