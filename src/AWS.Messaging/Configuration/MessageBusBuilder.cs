@@ -397,7 +397,6 @@ public class MessageBusBuilder : IMessageBusBuilder
             _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
         }
 
-        _serviceCollection.TryAddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
         _serviceCollection.TryAddSingleton<IDateTimeHandler, DateTimeHandler>();
         _serviceCollection.TryAddSingleton<IMessageIdGenerator, MessageIdGenerator>();
         _serviceCollection.TryAddSingleton<IAWSClientProvider, AWSClientProvider>();

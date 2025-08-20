@@ -22,7 +22,7 @@ internal sealed partial class MessageSerializerUtf8JsonWriter : IMessageSerializ
     public MessageSerializerUtf8JsonWriter(ILogger<MessageSerializerUtf8JsonWriter> logger, IMessageConfiguration messageConfiguration, IMessageJsonSerializerContextContainer jsonContextContainer)
     {
         _logger = logger;
-        _messageConfiguration= messageConfiguration;
+        _messageConfiguration = messageConfiguration;
         _jsonSerializerContext = jsonContextContainer.GetJsonSerializerContext();
     }
 
