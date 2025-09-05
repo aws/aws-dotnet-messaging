@@ -31,6 +31,11 @@ namespace AWS.Messaging
         public string? MessageGroupId { get; set; }
 
         /// <summary>
+        /// The time at which the message was sent to the queue (epoch time in milliseconds).
+        /// </summary>
+        public string? SentTimestamp { get; set; }
+
+        /// <summary>
         /// Each message attribute consists of a Name, Type, and Value.For more information, see Amazon SQS message attributes (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-message-metadata.html#sqs-message-attributes)
         /// </summary>
         public Dictionary<string, MessageAttributeValue>? MessageAttributes { get; set; }
