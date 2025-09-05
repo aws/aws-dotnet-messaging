@@ -31,6 +31,12 @@ internal static class MessageMetadataHandler
         {
             metadata.MessageGroupId = JsonPropertyHelper.GetAttributeValue(message.Attributes, "MessageGroupId");
             metadata.MessageDeduplicationId = JsonPropertyHelper.GetAttributeValue(message.Attributes, "MessageDeduplicationId");
+
+            var sentTimestamp = JsonPropertyHelper.GetAttributeValue(message.Attributes, "SentTimestamp");
+            if (!string.IsNullOrEmpty(sentTimestamp) && long.TryParse(sentTimestamp, out var epochMilliseconds))
+            {
+                metadata.SentTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(epochMilliseconds);
+            }
         }
 
         return metadata;
