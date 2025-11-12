@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging.Lambda",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Update AWS SDK Dependencies"
+      ]
+    }
+  ]
+}

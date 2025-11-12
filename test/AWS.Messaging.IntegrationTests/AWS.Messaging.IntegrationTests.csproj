@@ -9,18 +9,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.IdentityManagement" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.Lambda" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.S3" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.0" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.9.2" />
+    <PackageReference Include="AWSSDK.IdentityManagement" Version="4.0.6" />
+    <PackageReference Include="AWSSDK.Lambda" Version="4.0.6.2" />
+    <PackageReference Include="AWSSDK.S3" Version="4.0.11.1" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.4" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.*" />
-    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.SQS" Version="4.0.0" />
-    <PackageReference Include="xunit" Version="2.6.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.4">
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.11" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.2" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -28,7 +28,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
   </ItemGroup>
 
   <ItemGroup>

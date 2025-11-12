@@ -11,7 +11,6 @@ namespace AWS.Messaging.Configuration;
 /// </summary>
 internal class AWSClientProvider : IAWSClientProvider
 {
-    private const string _userAgentHeader = "User-Agent";
     private static readonly string _userAgentString = $"lib/aws-dotnet-messaging#{TelemetryKeys.AWSMessagingAssemblyVersion}";
 
     private readonly IServiceProvider _serviceProvider;
@@ -37,9 +36,10 @@ internal class AWSClientProvider : IAWSClientProvider
 
     internal static void AWSServiceClient_BeforeServiceRequest(object sender, RequestEventArgs e)
     {
-        if (e is not WebServiceRequestEventArgs args || !args.Headers.TryGetValue(_userAgentHeader, out var value) || value.Contains(_userAgentString))
-            return;
-
-        args.Headers[_userAgentHeader] = value + " " + _userAgentString;
+        WebServiceRequestEventArgs? args = e as WebServiceRequestEventArgs;
+        if (args != null && args.Request is Amazon.Runtime.Internal.IAmazonWebServiceRequest internalRequest && !internalRequest.UserAgentDetails.GetCustomUserAgentComponents().Contains(_userAgentString))
+        {
+            internalRequest.UserAgentDetails.AddUserAgentComponent(_userAgentString);
+        }
     }
 }

@@ -27,10 +27,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.EventBridge" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.0" />
-    <PackageReference Include="AWSSDK.SQS" Version="4.0.0" />
+    <PackageReference Include="AWSSDK.EventBridge" Version="4.0.5.4" />
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.11" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.2.4" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.*" />
