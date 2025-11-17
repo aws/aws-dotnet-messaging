@@ -134,7 +134,7 @@ public class SubscriberTests : IAsyncLifetime
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
         var tempStorage = serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
 
-        Assert.Empty(inMemoryLogger.Logs.Where(x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
+        Assert.DoesNotContain(inMemoryLogger.Logs, (x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
         Assert.Equal(numberOfMessages, tempStorage.Messages.Count);
         for (int i = 0; i < numberOfMessages; i++)
         {
@@ -216,7 +216,8 @@ public class SubscriberTests : IAsyncLifetime
 
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
 
-        Assert.Empty(inMemoryLogger.Logs.Where(x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
+        Assert.DoesNotContain(inMemoryLogger.Logs, (x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
+
         Assert.Equal(5, tempStorage.Messages.Count);
         for (int i = 0; i < 5; i++)
         {
