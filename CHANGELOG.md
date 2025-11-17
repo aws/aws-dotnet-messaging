@@ -1,3 +1,10 @@
+## Release 2025-11-17
+
+### AWS.Messaging.Lambda (1.0.2)
+* Update AWS SDK Dependencies
+### AWS.Messaging (1.0.2)
+* Update AWS SDK Dependencies
+
 ## Release 2025-07-29
 
 ### AWS.Messaging.Telemetry.OpenTelemetry (1.0.0)

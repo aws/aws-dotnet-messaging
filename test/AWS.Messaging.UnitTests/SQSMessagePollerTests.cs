@@ -236,7 +236,8 @@ public class SQSMessagePollerTests
         await messagePoller.ExtendMessageVisibilityTimeoutAsync(messageEnvelopes);
 
         Assert.NotNull(_inMemoryLogger);
-        Assert.Empty(_inMemoryLogger.Logs.Where(x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
+        Assert.DoesNotContain(_inMemoryLogger.Logs, (x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
+
     }
 
     /// <summary>
@@ -286,10 +287,9 @@ public class SQSMessagePollerTests
         Assert.NotNull(_inMemoryLogger);
 
         // Don't expect to see message 1 in the error logs, since this is the case where it was deleted before or while extending visibility
-        Assert.Empty(_inMemoryLogger.Logs.Where(x => x.Message.Contains("batchNum_0_messageId_1")));
-
+        Assert.DoesNotContain(_inMemoryLogger.Logs, (x => x.Message.Contains("batchNum_0_messageId_1")));
         // But we should see an entry for message 2, which failed to extend visibility for a different reason
-        Assert.Single(_inMemoryLogger.Logs.Where(x => x.Message.Contains("batchNum_0_messageId_2") && x.LogLevel == LogLevel.Error));
+        Assert.Single(_inMemoryLogger.Logs, (x => x.Message.Contains("batchNum_0_messageId_2") && x.LogLevel == LogLevel.Error));
     }
 
     /// <summary>
