@@ -135,6 +135,38 @@ public class MessageBusBuilder : IMessageBusBuilder
     }
 
     /// <inheritdoc/>
+    public IMessageBusBuilder AddSQSPoller<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(
+        string queueUrl,
+        string? messageTypeIdentifier = null,
+        bool usesMessageEnvelope = true,
+        Action<SQSMessagePollerOptions>? options = null)
+    {
+        // Create the user-provided options class
+        var sqsMessagePollerOptions = new SQSMessagePollerOptions();
+
+        options?.Invoke(sqsMessagePollerOptions);
+
+        sqsMessagePollerOptions.Validate();
+
+        // Copy that to our internal options class
+        var sqsMessagePollerConfiguration = new SingleTypeSQSMessagePollerConfiguration(queueUrl, typeof(TMessage))
+        {
+            MaxNumberOfConcurrentMessages = sqsMessagePollerOptions.MaxNumberOfConcurrentMessages,
+            VisibilityTimeout = sqsMessagePollerOptions.VisibilityTimeout,
+            VisibilityTimeoutExtensionThreshold = sqsMessagePollerOptions.VisibilityTimeoutExtensionThreshold,
+            VisibilityTimeoutExtensionHeartbeatInterval = sqsMessagePollerOptions.VisibilityTimeoutExtensionHeartbeatInterval,
+            WaitTimeSeconds = sqsMessagePollerOptions.WaitTimeSeconds,
+            IsExceptionFatal = sqsMessagePollerOptions.IsExceptionFatal,
+
+            SingleMessageTypeIdentifier = messageTypeIdentifier,
+            UsesMessageEnvelope = usesMessageEnvelope
+        };
+
+        _messageConfiguration.MessagePollerConfigurations.Add(sqsMessagePollerConfiguration);
+        return this;
+    }
+
+    /// <inheritdoc/>
     public IMessageBusBuilder ConfigureSerializationOptions(Action<SerializationOptions> options)
     {
         options(_messageConfiguration.SerializationOptions);

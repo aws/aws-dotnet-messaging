@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using AWS.Messaging.Configuration;
+using AWS.Messaging.Serialization;
 using AWS.Messaging.SQS;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -40,7 +41,47 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
     public IMessagePoller CreateMessagePoller(IMessagePollerConfiguration pollerConfiguration)
     {
         IMessagePoller poller;
-        if(pollerConfiguration is SQSMessagePollerConfiguration sqsPollerConfiguration)
+        if (pollerConfiguration is SingleTypeSQSMessagePollerConfiguration singleTypeSQSPollerConfiguration)
+        {
+            // If the poller is tied to a single message type, create a poller-scoped
+            // EnvelopeSerializer that only resolves that single subscriber mapping.
+            var messageConfiguration = _serviceProvider.GetRequiredService<IMessageConfiguration>();
+
+            SubscriberMapping? mapping;
+
+            if (!string.IsNullOrEmpty(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier))
+            {
+                mapping = messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier);
+            }
+            else
+            {
+                mapping = messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageType);
+            }
+
+            if (mapping is null)
+            {
+                throw new ConfigurationException(
+                    $"A subscriber mapping for message type '{singleTypeSQSPollerConfiguration.SingleMessageType.FullName}' " +
+                    $"(identifier '{singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier ?? "<default>"}') was not found.");
+            }
+
+            var scopedConfiguration = new SingleTypeMessageConfiguration(messageConfiguration, mapping);
+
+            var scopedEnvelopeSerializer = ActivatorUtilities.CreateInstance<EnvelopeSerializer>(_serviceProvider, scopedConfiguration);
+
+            IEnvelopeSerializer serializerToUse = scopedEnvelopeSerializer;
+            if (!singleTypeSQSPollerConfiguration.UsesMessageEnvelope)
+            {
+                serializerToUse = ActivatorUtilities.CreateInstance<SingleTypeSqsPollerEnvelopeSerializer>(
+                    _serviceProvider,
+                    scopedEnvelopeSerializer,
+                    mapping,
+                    singleTypeSQSPollerConfiguration.UsesMessageEnvelope);
+            }
+
+            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, serializerToUse);
+        }
+        else if(pollerConfiguration is SQSMessagePollerConfiguration sqsPollerConfiguration)
         {
             poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, sqsPollerConfiguration);
         }

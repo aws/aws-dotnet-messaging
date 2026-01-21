@@ -61,6 +61,26 @@ public interface IMessageBusBuilder
     IMessageBusBuilder AddSQSPoller(string queueUrl, Action<SQSMessagePollerOptions>? options = null);
 
     /// <summary>
+    /// Adds an SQS queue to poll for messages of a single message type.
+    /// <para/>
+    /// When configured this way, inbound message processing is restricted to the subscriber mapping for <typeparamref name="TMessage"/>.
+    /// This is especially useful when using a dedicated queue per message type or when ingesting raw JSON payloads that do not carry
+    /// a CloudEvents envelope (and therefore cannot be type-routed).
+    /// </summary>
+    /// <param name="queueUrl">The SQS queue to poll for messages.</param>
+    /// <param name="messageTypeIdentifier">Optional message type identifier to use when selecting the subscriber mapping for <typeparamref name="TMessage"/>.</param>
+    /// <param name="usesMessageEnvelope">
+    /// When true (default), inbound messages are expected to be in the CloudEvents envelope format.
+    /// When false, inbound messages are expected to be a raw payload of <typeparamref name="TMessage"/>.
+    /// </param>
+    /// <param name="options">Optional configuration for polling messages from SQS.</param>
+    IMessageBusBuilder AddSQSPoller<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(
+        string queueUrl,
+        string? messageTypeIdentifier = null,
+        bool usesMessageEnvelope = true,
+        Action<SQSMessagePollerOptions>? options = null);
+
+    /// <summary>
     /// Configures an instance of <see cref="SerializationOptions"/> to control the serialization/de-serialization logic for the application message.
     /// </summary>
     IMessageBusBuilder ConfigureSerializationOptions(Action<SerializationOptions> options);

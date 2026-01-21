@@ -12,6 +12,7 @@ using AWS.Messaging.Configuration;
 using AWS.Messaging.Services;
 using AWS.Messaging.UnitTests.MessageHandlers;
 using AWS.Messaging.UnitTests.Models;
+using AWS.Messaging.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Moq;
@@ -19,6 +20,7 @@ using Xunit;
 using AWS.Messaging.Tests.Common.Services;
 using AWS.Messaging.SQS;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 
 namespace AWS.Messaging.UnitTests;
 
@@ -319,6 +321,93 @@ public class SQSMessagePollerTests
 
         client.Verify(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce());
     }
+
+    [Fact]
+    public async Task SQSMessagePollerFactory_SingleMessageType_UsesRawOnly_WhenUsesMessageEnvelopeFalse()
+    {
+        // Raw JSON payload without CloudEvents envelope and without a 'type' discriminator.
+        const string rawJson = "{\"MessageDescription\":\"hello\"}";
+
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddLogging();
+
+        // Add a second mapping to make raw ingestion ambiguous without the single-type poller.
+        serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPoller<ChatMessage>(TEST_QUEUE_URL, usesMessageEnvelope: false);
+            builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>();
+        });
+
+        serviceCollection.AddSingleton(new Mock<IAmazonSQS>().Object);
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var messageConfiguration = serviceProvider.GetRequiredService<IMessageConfiguration>();
+        var pollerConfiguration = messageConfiguration.MessagePollerConfigurations.OfType<SQSMessagePollerConfiguration>().Single();
+
+        var messagePollerFactory = serviceProvider.GetRequiredService<IMessagePollerFactory>();
+        var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
+
+        var envelopeSerializerField = poller.GetType().GetField("_envelopeSerializer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(envelopeSerializerField);
+
+        var envelopeSerializer = envelopeSerializerField.GetValue(poller) as IEnvelopeSerializer;
+        Assert.NotNull(envelopeSerializer);
+
+        var result = await envelopeSerializer.ConvertToEnvelopeAsync(new Message
+        {
+            MessageId = "m-1",
+            ReceiptHandle = "rh-1",
+            Body = rawJson
+        });
+
+        Assert.Equal(typeof(ChatMessage), result.Mapping.MessageType);
+        var envelope = Assert.IsType<MessageEnvelope<ChatMessage>>(result.Envelope);
+        Assert.Equal("hello", envelope.Message.MessageDescription);
+    }
+
+    [Fact]
+    public async Task SQSMessagePollerFactory_SingleMessageType_RequiresEnvelope_ByDefault()
+    {
+        // Raw JSON payload without CloudEvents envelope.
+        const string rawJson = "{\"MessageDescription\":\"hello\"}";
+
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddLogging();
+
+        // Raw payload ingestion is disabled by default. We do not override it here.
+        serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPoller<ChatMessage>(TEST_QUEUE_URL);
+            builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+        });
+
+        serviceCollection.AddSingleton(new Mock<IAmazonSQS>().Object);
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var messageConfiguration = serviceProvider.GetRequiredService<IMessageConfiguration>();
+        var pollerConfiguration = messageConfiguration.MessagePollerConfigurations.OfType<SQSMessagePollerConfiguration>().Single();
+
+        var messagePollerFactory = serviceProvider.GetRequiredService<IMessagePollerFactory>();
+        var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
+
+        var envelopeSerializerField = poller.GetType().GetField("_envelopeSerializer", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(envelopeSerializerField);
+
+        var envelopeSerializer = envelopeSerializerField.GetValue(poller) as IEnvelopeSerializer;
+        Assert.NotNull(envelopeSerializer);
+
+        await Assert.ThrowsAsync<FailedToCreateMessageEnvelopeException>(async () =>
+        {
+            await envelopeSerializer.ConvertToEnvelopeAsync(new Message
+            {
+                MessageId = "m-1",
+                ReceiptHandle = "rh-1",
+                Body = rawJson
+            });
+        });
+    }
+
 
     /// <summary>
     /// Helper function that initializes and starts a <see cref="MessagePumpService"/> with
