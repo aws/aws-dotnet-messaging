@@ -315,7 +315,7 @@ await Host.CreateDefaultBuilder(args)
 Notes:
 * Without the CloudEvents envelope, the framework cannot type-route messages by a `'type'` discriminator. Use a dedicated queue per message type (or configure multiple pollers).
 * The S3-to-SQS notification format can include additional properties not modeled above; that's fine as long as your handler reads the fields it needs.
-* This same approach works with other AWS Lambda .NET event packages (for example, `Amazon.Lambda.SQSEvents`, `Amazon.Lambda.SNSEvents`, etc.) when the SQS message body is raw JSON for that event type.
+* This same approach works with other AWS Lambda .NET event packages (for example, `Amazon.Lambda.SNSEvents`, etc.) when the SQS message body is raw JSON for that event type.
 
 ### Configuring the SQS Message Poller
 The SQS message poller can be configured by the `SQSMessagePollerOptions` when calling `AddSQSPoller`.
