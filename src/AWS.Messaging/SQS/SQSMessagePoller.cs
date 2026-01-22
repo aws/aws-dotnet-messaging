@@ -71,6 +71,8 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
         _messageManager = messageManagerFactory.CreateMessageManager(this, _configuration.ToMessageManagerConfiguration());
     }
 
+    internal IEnvelopeSerializer EnvelopeSerializer => _envelopeSerializer;
+
     /// <inheritdoc/>
     public async Task StartPollingAsync(CancellationToken token = default)
     {

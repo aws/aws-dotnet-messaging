@@ -100,7 +100,7 @@ public class OpenTelemetryTests
 
 
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-            .AddSource(Constants.SourceName)
+            .AddSource(AWS.Messaging.Telemetry.OpenTelemetry.Constants.SourceName)
             .ConfigureResource(resource => resource.AddService("unittest"))
             .AddInMemoryExporter(activities).Build())
         {
@@ -136,7 +136,7 @@ public class OpenTelemetryTests
         Activity.Current = existingActivity;
 
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-            .AddSource(Constants.SourceName)
+            .AddSource(AWS.Messaging.Telemetry.OpenTelemetry.Constants.SourceName)
             .ConfigureResource(resource => resource.AddService("unittest"))
             .AddInMemoryExporter(activities).Build())
         {
@@ -167,7 +167,7 @@ public class OpenTelemetryTests
         };
 
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-            .AddSource(Constants.SourceName)
+            .AddSource(AWS.Messaging.Telemetry.OpenTelemetry.Constants.SourceName)
             .ConfigureResource(resource => resource.AddService("unittest"))
             .AddInMemoryExporter(activities).Build())
         {
@@ -208,7 +208,7 @@ public class OpenTelemetryTests
         };
 
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-            .AddSource(Constants.SourceName)
+            .AddSource(AWS.Messaging.Telemetry.OpenTelemetry.Constants.SourceName)
             .ConfigureResource(resource => resource.AddService("unittest"))
             .AddInMemoryExporter(activities).Build())
         {

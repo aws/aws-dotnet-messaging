@@ -1,3 +1,9 @@
+## Release 2026-01-22
+
+### AWS.Messaging (1.1.0)
+* Added support for pollers that are tied to a single message type. This change also allows processing messages that use the CloudEvents envelope as well as those that do not.
+* Add SentTimestamp to SQSMetadata
+
 ## Release 2025-11-17
 
 ### AWS.Messaging.Lambda (1.0.2)
