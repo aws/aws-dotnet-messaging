@@ -138,7 +138,7 @@ public class MessageBusBuilder : IMessageBusBuilder
     public IMessageBusBuilder AddSQSPoller<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(
         string queueUrl,
         string? messageTypeIdentifier = null,
-        bool usesMessageEnvelope = true,
+        MessageEnvelopeMode messageEnvelopeMode = MessageEnvelopeMode.Supported,
         Action<SQSMessagePollerOptions>? options = null)
     {
         // Create the user-provided options class
@@ -159,7 +159,7 @@ public class MessageBusBuilder : IMessageBusBuilder
             IsExceptionFatal = sqsMessagePollerOptions.IsExceptionFatal,
 
             SingleMessageTypeIdentifier = messageTypeIdentifier,
-            UsesMessageEnvelope = usesMessageEnvelope
+            MessageEnvelopeMode = messageEnvelopeMode
         };
 
         _messageConfiguration.MessagePollerConfigurations.Add(sqsMessagePollerConfiguration);

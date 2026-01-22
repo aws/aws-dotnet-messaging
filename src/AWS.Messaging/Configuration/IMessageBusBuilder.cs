@@ -69,15 +69,15 @@ public interface IMessageBusBuilder
     /// </summary>
     /// <param name="queueUrl">The SQS queue to poll for messages.</param>
     /// <param name="messageTypeIdentifier">Optional message type identifier to use when selecting the subscriber mapping for <typeparamref name="TMessage"/>.</param>
-    /// <param name="usesMessageEnvelope">
-    /// When true (default), inbound messages are expected to be in the CloudEvents envelope format.
-    /// When false, inbound messages are expected to be a raw payload of <typeparamref name="TMessage"/>.
+    /// <param name="messageEnvelopeMode">
+    /// When 'Supported' (default), inbound messages are expected to be in the CloudEvents envelope format.
+    /// When 'NotSupported', inbound messages are expected to be a raw payload of <typeparamref name="TMessage"/>.
     /// </param>
     /// <param name="options">Optional configuration for polling messages from SQS.</param>
     IMessageBusBuilder AddSQSPoller<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(
         string queueUrl,
         string? messageTypeIdentifier = null,
-        bool usesMessageEnvelope = true,
+        MessageEnvelopeMode messageEnvelopeMode = MessageEnvelopeMode.Supported,
         Action<SQSMessagePollerOptions>? options = null);
 
     /// <summary>

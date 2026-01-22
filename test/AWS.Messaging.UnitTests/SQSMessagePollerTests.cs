@@ -100,10 +100,10 @@ public class SQSMessagePollerTests
 
         // Start polling and wait for a message to be received
         pollingControlToken.StartPolling();
-        
+
         // Wait for a message to be received with a timeout
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try 
+        try
         {
             await messageReceived.Task.WaitAsync(cts.Token);
         }
@@ -334,7 +334,7 @@ public class SQSMessagePollerTests
         // Add a second mapping to make raw ingestion ambiguous without the single-type poller.
         serviceCollection.AddAWSMessageBus(builder =>
         {
-            builder.AddSQSPoller<ChatMessage>(TEST_QUEUE_URL, usesMessageEnvelope: false);
+            builder.AddSQSPoller<ChatMessage>(TEST_QUEUE_URL, messageEnvelopeMode: MessageEnvelopeMode.NotSupported);
             builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
             builder.AddMessageHandler<AddressInfoHandler, AddressInfo>();
         });
@@ -348,11 +348,8 @@ public class SQSMessagePollerTests
         var messagePollerFactory = serviceProvider.GetRequiredService<IMessagePollerFactory>();
         var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
 
-        var envelopeSerializerField = poller.GetType().GetField("_envelopeSerializer", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(envelopeSerializerField);
-
-        var envelopeSerializer = envelopeSerializerField.GetValue(poller) as IEnvelopeSerializer;
-        Assert.NotNull(envelopeSerializer);
+        var sqsPoller = Assert.IsType<SQSMessagePoller>(poller);
+        var envelopeSerializer = sqsPoller.EnvelopeSerializer;
 
         var result = await envelopeSerializer.ConvertToEnvelopeAsync(new Message
         {
@@ -364,6 +361,32 @@ public class SQSMessagePollerTests
         Assert.Equal(typeof(ChatMessage), result.Mapping.MessageType);
         var envelope = Assert.IsType<MessageEnvelope<ChatMessage>>(result.Envelope);
         Assert.Equal("hello", envelope.Message.MessageDescription);
+    }
+
+    [Fact]
+    public void SQSMessagePollerFactory_SingleMessageType_Throws_WhenIdentifierResolvesToDifferentMessageType()
+    {
+        const string addressInfoIdentifier = "address-info";
+
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddLogging();
+
+        serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPoller<ChatMessage>(TEST_QUEUE_URL, messageTypeIdentifier: addressInfoIdentifier, messageEnvelopeMode: MessageEnvelopeMode.NotSupported);
+            builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>(messageTypeIdentifier: addressInfoIdentifier);
+        });
+
+        serviceCollection.AddSingleton(new Mock<IAmazonSQS>().Object);
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+
+        var messageConfiguration = serviceProvider.GetRequiredService<IMessageConfiguration>();
+        var pollerConfiguration = messageConfiguration.MessagePollerConfigurations.OfType<SQSMessagePollerConfiguration>().Single();
+
+        var messagePollerFactory = serviceProvider.GetRequiredService<IMessagePollerFactory>();
+
+        Assert.Throws<ConfigurationException>(() => messagePollerFactory.CreateMessagePoller(pollerConfiguration));
     }
 
     [Fact]
@@ -391,11 +414,8 @@ public class SQSMessagePollerTests
         var messagePollerFactory = serviceProvider.GetRequiredService<IMessagePollerFactory>();
         var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
 
-        var envelopeSerializerField = poller.GetType().GetField("_envelopeSerializer", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(envelopeSerializerField);
-
-        var envelopeSerializer = envelopeSerializerField.GetValue(poller) as IEnvelopeSerializer;
-        Assert.NotNull(envelopeSerializer);
+        var sqsPoller = Assert.IsType<SQSMessagePoller>(poller);
+        var envelopeSerializer = sqsPoller.EnvelopeSerializer;
 
         await Assert.ThrowsAsync<FailedToCreateMessageEnvelopeException>(async () =>
         {

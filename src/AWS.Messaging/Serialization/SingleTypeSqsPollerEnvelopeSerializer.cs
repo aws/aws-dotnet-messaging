@@ -17,14 +17,12 @@ namespace AWS.Messaging.Serialization;
 /// </summary>
 internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerializer
 {
-    private const string CLOUD_EVENT_SPEC_VERSION = "1.0";
-
     private readonly ILogger<SingleTypeSqsPollerEnvelopeSerializer> _logger;
     private readonly IEnvelopeSerializer _envelopedMessageSerializer;
     private readonly IMessageSerializer _messageSerializer;
     private readonly IDateTimeHandler _dateTimeHandler;
     private readonly SubscriberMapping _subscriberMapping;
-    private readonly bool _usesMessageEnvelope;
+    private readonly MessageEnvelopeMode _messageEnvelopeMode;
 
     public SingleTypeSqsPollerEnvelopeSerializer(
         ILogger<SingleTypeSqsPollerEnvelopeSerializer> logger,
@@ -32,14 +30,14 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
         IMessageSerializer messageSerializer,
         IDateTimeHandler dateTimeHandler,
         SubscriberMapping subscriberMapping,
-        bool usesMessageEnvelope)
+        MessageEnvelopeMode messageEnvelopeMode)
     {
         _logger = logger;
         _envelopedMessageSerializer = envelopedMessageSerializer;
         _messageSerializer = messageSerializer;
         _dateTimeHandler = dateTimeHandler;
         _subscriberMapping = subscriberMapping;
-        _usesMessageEnvelope = usesMessageEnvelope;
+        _messageEnvelopeMode = messageEnvelopeMode;
     }
 
     /// <inheritdoc/>
@@ -53,7 +51,7 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
     /// <inheritdoc/>
     public async ValueTask<ConvertToEnvelopeResult> ConvertToEnvelopeAsync(Message message)
     {
-        if (_usesMessageEnvelope)
+        if (_messageEnvelopeMode == MessageEnvelopeMode.Supported)
         {
             var result = await _envelopedMessageSerializer.ConvertToEnvelopeAsync(message);
 
@@ -76,7 +74,7 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
         // Populate minimum envelope fields. These aren't present in raw messages.
         envelope.Id = message.MessageId ?? Guid.NewGuid().ToString("D");
         envelope.Source = new Uri("/aws/messaging/raw", UriKind.Relative);
-        envelope.Version = CLOUD_EVENT_SPEC_VERSION;
+        envelope.Version = Constants.CLOUD_EVENT_SPEC_VERSION;
         envelope.MessageTypeIdentifier = _subscriberMapping.MessageTypeIdentifier;
         envelope.TimeStamp = _dateTimeHandler.GetUtcNow();
         envelope.DataContentType = "application/json";

@@ -12,7 +12,7 @@ namespace AWS.Messaging.Configuration;
 /// to a single configured subscriber mapping. This is used to create a poller instance that only
 /// processes one message type.
 /// </summary>
-public class SingleTypeMessageConfiguration : IMessageConfiguration
+internal class SingleTypeMessageConfiguration : IMessageConfiguration
 {
     private readonly IMessageConfiguration _inner;
     private readonly SubscriberMapping _subscriberMapping;

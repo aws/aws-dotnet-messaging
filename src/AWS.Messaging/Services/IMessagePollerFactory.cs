@@ -47,16 +47,9 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
             // EnvelopeSerializer that only resolves that single subscriber mapping.
             var messageConfiguration = _serviceProvider.GetRequiredService<IMessageConfiguration>();
 
-            SubscriberMapping? mapping;
-
-            if (!string.IsNullOrEmpty(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier))
-            {
-                mapping = messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier);
-            }
-            else
-            {
-                mapping = messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageType);
-            }
+            SubscriberMapping? mapping = !string.IsNullOrEmpty(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier)
+                ? messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier)
+                : messageConfiguration.GetSubscriberMapping(singleTypeSQSPollerConfiguration.SingleMessageType);
 
             if (mapping is null)
             {
@@ -65,18 +58,27 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
                     $"(identifier '{singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier ?? "<default>"}') was not found.");
             }
 
+            if (!string.IsNullOrEmpty(singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier) &&
+                mapping.MessageType != singleTypeSQSPollerConfiguration.SingleMessageType)
+            {
+                throw new ConfigurationException(
+                    $"The subscriber mapping identifier '{singleTypeSQSPollerConfiguration.SingleMessageTypeIdentifier}' resolves to message type " +
+                    $"'{mapping.MessageType.FullName}', but the poller is configured for single message type " +
+                    $"'{singleTypeSQSPollerConfiguration.SingleMessageType.FullName}'.");
+            }
+
             var scopedConfiguration = new SingleTypeMessageConfiguration(messageConfiguration, mapping);
 
             var scopedEnvelopeSerializer = ActivatorUtilities.CreateInstance<EnvelopeSerializer>(_serviceProvider, scopedConfiguration);
 
             IEnvelopeSerializer serializerToUse = scopedEnvelopeSerializer;
-            if (!singleTypeSQSPollerConfiguration.UsesMessageEnvelope)
+            if (singleTypeSQSPollerConfiguration.MessageEnvelopeMode == MessageEnvelopeMode.NotSupported)
             {
                 serializerToUse = ActivatorUtilities.CreateInstance<SingleTypeSqsPollerEnvelopeSerializer>(
                     _serviceProvider,
                     scopedEnvelopeSerializer,
                     mapping,
-                    singleTypeSQSPollerConfiguration.UsesMessageEnvelope);
+                    singleTypeSQSPollerConfiguration.MessageEnvelopeMode);
             }
 
             poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, serializerToUse);

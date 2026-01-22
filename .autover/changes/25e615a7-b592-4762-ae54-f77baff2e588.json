@@ -4,7 +4,7 @@
       "Name": "AWS.Messaging",
       "Type": "Minor",
       "ChangelogMessages": [
-        "Added support to pollers that are tied to a single message type. This change also allows processing messages that use the CloudEvents envelope as well as those that do not."
+        "Added support for pollers that are tied to a single message type. This change also allows processing messages that use the CloudEvents envelope as well as those that do not."
       ]
     }
   ]

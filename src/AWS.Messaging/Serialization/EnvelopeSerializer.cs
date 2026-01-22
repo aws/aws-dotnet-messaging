@@ -20,7 +20,6 @@ namespace AWS.Messaging.Serialization;
 internal class EnvelopeSerializer : IEnvelopeSerializer
 {
     private Uri? MessageSource { get; set; }
-    private const string CLOUD_EVENT_SPEC_VERSION = "1.0";
 
     private readonly IMessageConfiguration _messageConfiguration;
     private readonly IMessageSerializer _messageSerializer;
@@ -76,7 +75,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         {
             Id = messageId,
             Source = MessageSource,
-            Version = CLOUD_EVENT_SPEC_VERSION,
+            Version = Constants.CLOUD_EVENT_SPEC_VERSION,
             MessageTypeIdentifier = publisherMapping.MessageTypeIdentifier,
             TimeStamp = timeStamp,
             Message = message

@@ -19,7 +19,7 @@ public class SingleTypeSQSMessagePollerConfiguration : SQSMessagePollerConfigura
     }
 
     /// <summary>
-    /// Th poller will only attempt to process messages for the specified message type.
+    /// The poller will only attempt to process messages for the specified message type.
     /// This is useful for queues that are dedicated to a single message type or when enabling raw JSON ingestion
     /// without requiring type-based routing.
     /// </summary>
@@ -33,8 +33,8 @@ public class SingleTypeSQSMessagePollerConfiguration : SQSMessagePollerConfigura
 
     /// <summary>
     /// Controls how inbound messages are interpreted when this poller is configured for a single message type.
-    /// When true (default), inbound messages are expected to be in the CloudEvents envelope format.
-    /// When false, inbound messages are expected to be a raw payload of the single message type.
+    /// When 'Supported' (default), inbound messages are expected to be in the CloudEvents envelope format.
+    /// When 'NotSupported', inbound messages are expected to be a raw payload of the single message type.
     /// </summary>
-    internal bool UsesMessageEnvelope { get; init; } = true;
+    internal MessageEnvelopeMode MessageEnvelopeMode { get; init; } = MessageEnvelopeMode.Supported;
 }
