@@ -245,6 +245,78 @@ await Host.CreateDefaultBuilder(args)
     .RunAsync();
 ```
 
+### Consuming AWS service events (raw JSON payloads)
+Many AWS services can deliver events to SQS (directly, via SNS, or via EventBridge rules). These payloads are typically *raw JSON* and do not include the framework's CloudEvents envelope.
+
+To consume raw JSON payloads, configure the SQS poller for a *single message type* and disable envelope support via `MessageEnvelopeMode.NotSupported`.
+
+#### Example: Consume S3 event notifications from SQS
+If you configure an S3 bucket to send event notifications directly to an SQS queue (for example, `s3:ObjectCreated:*`), the message body contains an S3 event notification JSON document.
+
+You can model this payload yourself, but you can also reuse the strongly-typed event classes from the AWS Lambda .NET packages.
+
+Add the S3 events package:
+```
+dotnet add package Amazon.Lambda.S3Events
+```
+
+The following example uses `Amazon.Lambda.S3Events.S3Event` and configures JSON deserialization to be case-insensitive (S3 event JSON uses a mix of `Records` and camelCase properties).
+
+```csharp
+using System.Text.Json;
+using AWS.Messaging;
+using AWS.Messaging.Configuration;
+using Amazon.Lambda.S3Events;
+using Microsoft.Extensions.Hosting;
+
+public sealed class S3EventNotificationHandler : IMessageHandler<S3Event>
+{
+    public Task<MessageProcessStatus> HandleAsync(
+        MessageEnvelope<S3Event> messageEnvelope,
+        CancellationToken token = default)
+    {
+        var record = messageEnvelope.Message.Records?.FirstOrDefault();
+        var bucket = record?.S3?.Bucket?.Name;
+        var key = record?.S3?.Object?.Key;
+
+        Console.WriteLine($"S3 event: bucket='{bucket}', key='{key}', eventName='{record?.EventName}'");
+
+        return Task.FromResult(MessageProcessStatus.Success());
+    }
+}
+
+await Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddAWSMessageBus(builder =>
+        {
+            // The poller is tied to a single message type and expects raw JSON.
+            // This is a good fit for a queue dedicated to a single AWS service event.
+            builder.AddSQSPoller<S3Event>(
+                "https://sqs.us-west-2.amazonaws.com/012345678910/MyAppProd",
+                messageEnvelopeMode: MessageEnvelopeMode.NotSupported);
+
+            // Recommended for AWS service event JSON: be lenient about casing.
+            builder.ConfigureSerializationOptions(options =>
+            {
+                options.SystemTextJsonOptions = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+            });
+
+            builder.AddMessageHandler<S3EventNotificationHandler, S3Event>();
+        });
+    })
+    .Build()
+    .RunAsync();
+```
+
+Notes:
+* Without the CloudEvents envelope, the framework cannot type-route messages by a `'type'` discriminator. Use a dedicated queue per message type (or configure multiple pollers).
+* The S3-to-SQS notification format can include additional properties not modeled above; that's fine as long as your handler reads the fields it needs.
+* This same approach works with other AWS Lambda .NET event packages (for example, `Amazon.Lambda.SQSEvents`, `Amazon.Lambda.SNSEvents`, etc.) when the SQS message body is raw JSON for that event type.
+
 ### Configuring the SQS Message Poller
 The SQS message poller can be configured by the `SQSMessagePollerOptions` when calling `AddSQSPoller`.
 * `MaxNumberOfConcurrentMessages` - The maximum number of messages from the queue to process concurrently. The default value is `10`.
