@@ -163,6 +163,10 @@ public class MessageBusBuilder : IMessageBusBuilder
         };
 
         _messageConfiguration.MessagePollerConfigurations.Add(sqsMessagePollerConfiguration);
+
+        // Adding a user agent feature for the single-type SQS poller to help with telemetry and understanding adoption of this feature.
+        AWSClientProvider.AddUserAgentFeature("SINGLE_TYPE_SQS_POLLER");
+
         return this;
     }
 
