@@ -12,6 +12,7 @@ namespace AWS.Messaging.Configuration;
 internal class AWSClientProvider : IAWSClientProvider
 {
     private static readonly string _userAgentString = $"lib/aws-dotnet-messaging#{TelemetryKeys.AWSMessagingAssemblyVersion}";
+    private static readonly HashSet<string> _userAgentFeatures = new ();
 
     private readonly IServiceProvider _serviceProvider;
 
@@ -40,6 +41,19 @@ internal class AWSClientProvider : IAWSClientProvider
         if (args != null && args.Request is Amazon.Runtime.Internal.IAmazonWebServiceRequest internalRequest && !internalRequest.UserAgentDetails.GetCustomUserAgentComponents().Contains(_userAgentString))
         {
             internalRequest.UserAgentDetails.AddUserAgentComponent(_userAgentString);
+            foreach (var feature in _userAgentFeatures)
+            {
+                internalRequest.UserAgentDetails.AddUserAgentComponent($" ft/{feature}");
+            }
         }
+    }
+
+    /// <summary>
+    /// Adds a feature to the user agent string for all AWS service clients created by this provider. This is used for telemetry purposes to identify which features of the library are being used.
+    /// </summary>
+    /// <param name="feature">The feature to add to the user agent string.</param>
+    internal static void AddUserAgentFeature(string feature)
+    {
+        _userAgentFeatures.Add(feature);
     }
 }
