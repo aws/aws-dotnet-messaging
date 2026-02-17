@@ -1,3 +1,8 @@
+## Release 2026-02-17
+
+### AWS.Messaging (1.1.1)
+* Added a user agent feature for the single-type SQS poller to help with telemetry and understanding adoption of this feature.
+
 ## Release 2026-01-22
 
 ### AWS.Messaging (1.1.0)
