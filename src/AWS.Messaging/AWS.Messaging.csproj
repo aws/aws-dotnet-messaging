@@ -18,7 +18,7 @@
     <NoWarn>CS1591</NoWarn>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\..\public.snk</AssemblyOriginatorKeyFile>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
@@ -27,10 +27,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.EventBridge" Version="4.0.5.4" />
-    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.11" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.2.4" />
-    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.2" />
+    <PackageReference Include="AWSSDK.EventBridge" Version="4.0.5.16" />
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.23" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.2.17" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.15" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.*" />
