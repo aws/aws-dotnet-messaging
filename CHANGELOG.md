@@ -1,3 +1,10 @@
+## Release 2026-02-25
+
+### AWS.Messaging (1.1.2)
+* Update AWS SDK Dependencies
+### AWS.Messaging.Lambda (1.0.3)
+* Update AWS SDK Dependencies
+
 ## Release 2026-02-17
 
 ### AWS.Messaging (1.1.1)
