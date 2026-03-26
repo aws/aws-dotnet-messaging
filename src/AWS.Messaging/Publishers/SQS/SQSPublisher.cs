@@ -132,6 +132,11 @@ internal class SQSPublisher : ISQSPublisher
     /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, SQSOptions? sqsOptions = null, CancellationToken token = default)
     {
+        if (messages == null)
+        {
+            throw new ArgumentNullException(nameof(messages), "The messages collection cannot be null.");
+        }
+
         var entries = messages.Select(m => new SQSBatchEntry<T>(m, null));
         return await SendBatchAsync(entries, sqsOptions, token);
     }
@@ -144,8 +149,16 @@ internal class SQSPublisher : ISQSPublisher
     /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSOptions? sqsOptions = null, CancellationToken token = default)
     {
+        if (entries == null)
+        {
+            throw new ArgumentNullException(nameof(entries), "The entries collection cannot be null.");
+        }
+
         using (var trace = _telemetryFactory.Trace("Publish batch to AWS SQS"))
         {
+            // Declared outside try so partial results can be captured in the catch block
+            var aggregatedResponse = new SQSSendBatchResponse();
+
             try
             {
                 trace.AddMetadata(TelemetryKeys.ObjectType, typeof(T).FullName!);
@@ -166,9 +179,15 @@ internal class SQSPublisher : ISQSPublisher
                     }
 
                     var messageEnvelope = await _envelopeSerializer.CreateEnvelopeAsync(entry.Message);
+
+                    // Record telemetry context for each envelope to support downstream trace correlation
+                    trace.RecordTelemetryContext(messageEnvelope);
+
                     var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                    var batchEntry = CreateSendMessageBatchRequestEntry(queueUrl, messageBody, sqsOptions, entry.Options);
+                    // Use the MessageEnvelope.Id as the batch entry Id so callers can correlate
+                    // successes/failures in the response back to their original input messages
+                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, sqsOptions, entry.Options);
                     batchRequestEntries.Add(batchEntry);
                 }
 
@@ -181,8 +200,9 @@ internal class SQSPublisher : ISQSPublisher
                 _logger.LogDebug("Sending a batch of {MessageCount} message(s) of type '{MessageType}' to SQS. Publisher Endpoint: {Endpoint}",
                     batchRequestEntries.Count, typeof(T), queueUrl);
 
-                // Chunk into groups of MAX_BATCH_SIZE (10) and send each chunk
-                var aggregatedResponse = new SQSSendBatchResponse();
+                // Chunk into groups of MAX_BATCH_SIZE (10) and send each chunk.
+                // Note: If an AmazonSQSException occurs on a later chunk, earlier chunks may have already
+                // succeeded. The partial results are surfaced on the thrown FailedToPublishBatchException.
                 var chunks = Chunk(batchRequestEntries, MAX_BATCH_SIZE);
 
                 foreach (var chunk in chunks)
@@ -214,7 +234,7 @@ internal class SQSPublisher : ISQSPublisher
                         foreach (var failure in response.Failed)
                         {
                             _logger.LogError(
-                                "Failed to send message with Id '{MessageId}' in batch to SQS. Error Code: {ErrorCode}, Error Message: {ErrorMessage}",
+                                "Failed to send batch entry with Id '{BatchEntryId}' to SQS. Error Code: {ErrorCode}, Error Message: {ErrorMessage}",
                                 failure.Id, failure.Code, failure.Message);
 
                             aggregatedResponse.Failed.Add(new SQSSendBatchResponseFailedEntry
@@ -234,11 +254,18 @@ internal class SQSPublisher : ISQSPublisher
 
                 return aggregatedResponse;
             }
+            catch (Exception ex) when (ex is AmazonSQSException)
+            {
+                trace.AddException(ex);
+                // Surface partial results from chunks that may have succeeded before this failure
+                throw new FailedToPublishBatchException(
+                    "Message batch failed to publish. Some messages in earlier chunks may have been sent successfully. " +
+                    "Check the PartialResponse property for details.",
+                    ex, aggregatedResponse);
+            }
             catch (Exception ex)
             {
                 trace.AddException(ex);
-                if (ex is AmazonSQSException)
-                    throw new FailedToPublishException("Message batch failed to publish.", ex);
                 throw;
             }
         }
@@ -256,6 +283,7 @@ internal class SQSPublisher : ISQSPublisher
     }
 
     private SendMessageBatchRequestEntry CreateSendMessageBatchRequestEntry(
+        string entryId,
         string queueUrl,
         string messageBody,
         SQSOptions? sharedOptions,
@@ -281,7 +309,7 @@ internal class SQSPublisher : ISQSPublisher
 
         var entry = new SendMessageBatchRequestEntry
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = entryId,
             MessageBody = messageBody
         };
 

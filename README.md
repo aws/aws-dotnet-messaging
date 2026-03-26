@@ -212,8 +212,10 @@ var response = await sqsPublisher.SendBatchAsync(entries);
 
 ### Handling the batch response
 `SendBatchAsync` returns a `SQSSendBatchResponse` that contains:
-* `Successful` — a list of `SQSSendBatchResponseEntry` with the `Id` (correlation ID) and `MessageId` (SQS-assigned ID) for each successfully sent message.
+* `Successful` — a list of `SQSSendBatchResponseEntry` with the `Id` and `MessageId` (SQS-assigned ID) for each successfully sent message.
 * `Failed` — a list of `SQSSendBatchResponseFailedEntry` with `Id`, `Code`, `Message`, and `SenderFault` for each message that failed.
+
+The `Id` on each response entry corresponds to the `MessageEnvelope.Id` that the framework generated for that message, so you can correlate successes and failures back to your original inputs.
 
 ```csharp
 var response = await sqsPublisher.SendBatchAsync(messages);
@@ -230,6 +232,23 @@ foreach (var failure in response.Failed)
 ```
 
 > **Note:** Messages are automatically chunked into groups of 10. If you send 25 messages, the framework will make 3 SQS `SendMessageBatch` API calls (10 + 10 + 5) and aggregate the results into a single `SQSSendBatchResponse`.
+
+### Error handling and partial results
+If an `AmazonSQSException` is thrown during a batch send (e.g., on the second chunk after the first chunk already succeeded), the framework throws a `FailedToPublishBatchException`. This exception includes a `PartialResponse` property containing any results from chunks that were sent before the failure occurred, so you can determine what was already published and avoid duplicate retries.
+
+```csharp
+try
+{
+    var response = await sqsPublisher.SendBatchAsync(messages);
+}
+catch (FailedToPublishBatchException ex)
+{
+    // Some messages from earlier chunks may have been sent successfully
+    var alreadySent = ex.PartialResponse?.Successful ?? new List<SQSSendBatchResponseEntry>();
+    Console.WriteLine($"{alreadySent.Count} message(s) were sent before the failure.");
+    Console.WriteLine($"Error: {ex.InnerException?.Message}");
+}
+```
 
 # Consuming Messages
 

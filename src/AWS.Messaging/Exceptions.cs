@@ -274,6 +274,28 @@ public class InvalidFifoPublishingRequestException : AWSMessagingException
 }
 
 /// <summary>
+/// Thrown if an exception occurs while publishing a batch of messages.
+/// Contains partial results from chunks that may have already succeeded before the failure.
+/// </summary>
+public class FailedToPublishBatchException : FailedToPublishException
+{
+    /// <summary>
+    /// The partial response containing results from batch chunks that were sent before the failure occurred.
+    /// Earlier chunks may have succeeded even though a later chunk failed.
+    /// </summary>
+    public Publishers.SQS.SQSSendBatchResponse? PartialResponse { get; }
+
+    /// <summary>
+    /// Creates an instance of <see cref="FailedToPublishBatchException"/>.
+    /// </summary>
+    public FailedToPublishBatchException(string message, Exception? innerException = null, Publishers.SQS.SQSSendBatchResponse? partialResponse = null)
+        : base(message, innerException)
+    {
+        PartialResponse = partialResponse;
+    }
+}
+
+/// <summary>
 /// Thrown if the <see cref="EventBridgePublishResponse"/> contains a message with an error code
 /// </summary>
 public class EventBridgePutEventsException : AWSMessagingException

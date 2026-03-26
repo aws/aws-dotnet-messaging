@@ -1458,6 +1458,72 @@ public class MessagePublisherTests
     }
 
     [Fact]
+    public async Task SQSPublisher_SendBatch_PartialResultsOnChunkFailure()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        var callCount = 0;
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SendMessageBatchRequest req, CancellationToken _) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    // First chunk succeeds
+                    return new SendMessageBatchResponse
+                    {
+                        Successful = req.Entries.Select(e => new SendMessageBatchResultEntry
+                        {
+                            Id = e.Id,
+                            MessageId = $"msg-{e.Id}"
+                        }).ToList(),
+                        Failed = new List<SQSBatchResultErrorEntry>()
+                    };
+                }
+                // Second chunk throws AmazonSQSException
+                throw new AmazonSQSException("Service unavailable");
+            });
+
+        // 15 messages = 2 chunks (10 + 5). First chunk will succeed, second will throw.
+        var messages = Enumerable.Range(1, 15)
+            .Select(i => new ChatMessage { MessageDescription = $"Message {i}" })
+            .ToList();
+
+        var ex = await Assert.ThrowsAsync<FailedToPublishBatchException>(
+            () => messagePublisher.SendBatchAsync(messages));
+
+        // Verify the exception carries partial results from the first successful chunk
+        Assert.NotNull(ex.PartialResponse);
+        Assert.Equal(10, ex.PartialResponse.Successful.Count);
+        Assert.Empty(ex.PartialResponse.Failed);
+        Assert.IsType<AmazonSQSException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_NullMessagesCollectionThrowsException()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => messagePublisher.SendBatchAsync((IEnumerable<ChatMessage>)null!));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_NullEntriesCollectionThrowsException()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => messagePublisher.SendBatchAsync((IEnumerable<SQSBatchEntry<ChatMessage>>)null!));
+    }
+
+    [Fact]
     public async Task PublishToFifoTopic_WithoutMessageGroupId_ThrowsException()
     {
         var serviceProvider = SetupSNSPublisherDIServices("endpoint.fifo");
