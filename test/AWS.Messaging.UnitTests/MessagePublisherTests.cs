@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AWS.Messaging.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -23,6 +24,7 @@ using AWS.Messaging.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 using AWS.Messaging.Publishers.SQS;
 using AWS.Messaging.Publishers.SNS;
+using SQSBatchResultErrorEntry = Amazon.SQS.Model.BatchResultErrorEntry;
 
 namespace AWS.Messaging.UnitTests;
 
@@ -1106,6 +1108,353 @@ public class MessagePublisherTests
 
         await Assert.ThrowsAsync<InvalidFifoPublishingRequestException>(() => messagePublisher.PublishAsync<ChatMessage?>(new ChatMessage()));
         await Assert.ThrowsAsync<InvalidFifoPublishingRequestException>(() => sqsMessagePublisher.SendAsync<ChatMessage?>(new ChatMessage(), new SQSOptions()));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_HappyPath()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(request =>
+                    request.QueueUrl.Equals("endpoint") &&
+                    request.Entries.Count == 3),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" },
+                new() { Id = "id2", MessageId = "msg2" },
+                new() { Id = "id3", MessageId = "msg3" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" },
+            new() { MessageDescription = "Message 2" },
+            new() { MessageDescription = "Message 3" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync(messages);
+
+        Assert.Equal(3, result.Successful.Count);
+        Assert.Empty(result.Failed);
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_PartialFailure()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>
+            {
+                new() { Id = "id2", Code = "InternalError", Message = "Something went wrong", SenderFault = false }
+            }
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" },
+            new() { MessageDescription = "Message 2" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync(messages);
+
+        Assert.Single(result.Successful);
+        Assert.Equal("msg1", result.Successful[0].MessageId);
+        Assert.Single(result.Failed);
+        Assert.Equal("InternalError", result.Failed[0].Code);
+        Assert.Equal("Something went wrong", result.Failed[0].Message);
+        Assert.False(result.Failed[0].SenderFault);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_AutoChunking()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        // Set up to return success for any batch
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync((SendMessageBatchRequest req, CancellationToken _) =>
+            new SendMessageBatchResponse
+            {
+                Successful = req.Entries.Select(e => new SendMessageBatchResultEntry
+                {
+                    Id = e.Id,
+                    MessageId = $"msg-{e.Id}"
+                }).ToList(),
+                Failed = new List<SQSBatchResultErrorEntry>()
+            });
+
+        // 15 messages should result in 2 batch calls (10 + 5)
+        var messages = Enumerable.Range(1, 15)
+            .Select(i => new ChatMessage { MessageDescription = $"Message {i}" })
+            .ToList();
+
+        var result = await messagePublisher.SendBatchAsync(messages);
+
+        Assert.Equal(15, result.Successful.Count);
+        Assert.Empty(result.Failed);
+
+        // Verify we made exactly 2 batch calls
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+
+        // Verify first chunk had 10 entries
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req => req.Entries.Count == 10),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+
+        // Verify second chunk had 5 entries
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req => req.Entries.Count == 5),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_EmptyList()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        var messages = new List<ChatMessage>();
+
+        var result = await messagePublisher.SendBatchAsync(messages);
+
+        Assert.Empty(result.Successful);
+        Assert.Empty(result.Failed);
+
+        // Verify no SQS calls were made
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never());
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_FifoValidation()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices("endpoint.fifo");
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" }
+        };
+
+        // No MessageGroupId should throw
+        await Assert.ThrowsAsync<InvalidFifoPublishingRequestException>(
+            () => messagePublisher.SendBatchAsync(messages));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_FifoWithSharedMessageGroupId()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices("endpoint.fifo");
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req =>
+                    req.Entries.All(e => e.MessageGroupId == "group1")),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" },
+                new() { Id = "id2", MessageId = "msg2" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" },
+            new() { MessageDescription = "Message 2" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
+        {
+            MessageGroupId = "group1"
+        });
+
+        Assert.Equal(2, result.Successful.Count);
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req =>
+                    req.Entries.All(e => e.MessageGroupId == "group1")),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_PerMessageOptions()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices("endpoint.fifo");
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" },
+                new() { Id = "id2", MessageId = "msg2" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Message 1" },
+                new SQSOptions { MessageGroupId = "groupA" }),
+            new(new ChatMessage { MessageDescription = "Message 2" },
+                new SQSOptions { MessageGroupId = "groupB" })
+        };
+
+        var result = await messagePublisher.SendBatchAsync(entries);
+
+        Assert.Equal(2, result.Successful.Count);
+
+        // Verify entries had different message group IDs
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req =>
+                    req.Entries.Any(e => e.MessageGroupId == "groupA") &&
+                    req.Entries.Any(e => e.MessageGroupId == "groupB")),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_OverrideClient()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        var overrideSQSClient = new Mock<IAmazonSQS>();
+        overrideSQSClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
+        {
+            OverrideClient = overrideSQSClient.Object
+        });
+
+        Assert.Single(result.Successful);
+
+        // Assert that the override client was invoked
+        overrideSQSClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+
+        // And not the default client
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never());
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_MessageSpecificQueueUrl()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req => req.QueueUrl.Equals("overrideEndpoint")),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "id1", MessageId = "msg1" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            new() { MessageDescription = "Message 1" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
+        {
+            QueueUrl = "overrideEndpoint"
+        });
+
+        Assert.Single(result.Successful);
+
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.Is<SendMessageBatchRequest>(req => req.QueueUrl.Equals("overrideEndpoint")),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_NullMessageThrowsException()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Valid" }),
+            new() { Message = null! }
+        };
+
+        await Assert.ThrowsAsync<InvalidMessageException>(
+            () => messagePublisher.SendBatchAsync(entries));
     }
 
     [Fact]
