@@ -91,19 +91,7 @@ internal class SQSPublisher : ISQSPublisher
 
                 var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                IAmazonSQS client;
-                if (sqsOptions?.OverrideClient != null)
-                {
-                    // Use the client that the user specified for this message
-                    client = sqsOptions.OverrideClient;
-                }
-                else // use the publisher-level client
-                {
-                    // If we haven't resolved the client yet for this publisher, do so now
-                    _sqsClient ??= _awsClientProvider.GetServiceClient<IAmazonSQS>();
-
-                    client = _sqsClient;
-                }
+                var client = ResolveClient(sqsOptions);
 
                 _logger.LogDebug("Sending the message of type '{MessageType}' to SQS. Publisher Endpoint: {Endpoint}", typeof(T), queueUrl);
                 var sendMessageRequest = CreateSendMessageRequest(queueUrl, messageBody, sqsOptions);
