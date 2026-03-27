@@ -1278,7 +1278,7 @@ public class MessagePublisherTests
     }
 
     [Fact]
-    public async Task SQSPublisher_SendBatch_FifoWithSharedMessageGroupId()
+    public async Task SQSPublisher_SendBatch_FifoWithPerEntryMessageGroupId()
     {
         var serviceProvider = SetupSQSPublisherDIServices("endpoint.fifo");
         var messagePublisher = SetupSQSPublisher(serviceProvider);
@@ -1297,16 +1297,15 @@ public class MessagePublisherTests
             Failed = new List<SQSBatchResultErrorEntry>()
         });
 
-        var messages = new List<ChatMessage>
+        var entries = new List<SQSBatchEntry<ChatMessage>>
         {
-            new() { MessageDescription = "Message 1" },
-            new() { MessageDescription = "Message 2" }
+            new(new ChatMessage { MessageDescription = "Message 1" },
+                new SQSMessageOptions { MessageGroupId = "group1" }),
+            new(new ChatMessage { MessageDescription = "Message 2" },
+                new SQSMessageOptions { MessageGroupId = "group1" })
         };
 
-        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
-        {
-            MessageGroupId = "group1"
-        });
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
 
         Assert.Equal(2, result.Successful.Count);
         _sqsClient.Verify(x =>
@@ -1339,12 +1338,12 @@ public class MessagePublisherTests
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
             new(new ChatMessage { MessageDescription = "Message 1" },
-                new SQSOptions { MessageGroupId = "groupA" }),
+                new SQSMessageOptions { MessageGroupId = "groupA" }),
             new(new ChatMessage { MessageDescription = "Message 2" },
-                new SQSOptions { MessageGroupId = "groupB" })
+                new SQSMessageOptions { MessageGroupId = "groupB" })
         };
 
-        var result = await messagePublisher.SendBatchAsync(entries);
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
 
         Assert.Equal(2, result.Successful.Count);
 
@@ -1377,12 +1376,12 @@ public class MessagePublisherTests
             Failed = new List<SQSBatchResultErrorEntry>()
         });
 
-        var messages = new List<ChatMessage>
+        var entries = new List<SQSBatchEntry<ChatMessage>>
         {
-            new() { MessageDescription = "Message 1" }
+            new(new ChatMessage { MessageDescription = "Message 1" })
         };
 
-        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
+        var result = await messagePublisher.SendBatchAsync(entries, new SQSBatchOptions
         {
             OverrideClient = overrideSQSClient.Object
         });
@@ -1422,12 +1421,12 @@ public class MessagePublisherTests
             Failed = new List<SQSBatchResultErrorEntry>()
         });
 
-        var messages = new List<ChatMessage>
+        var entries = new List<SQSBatchEntry<ChatMessage>>
         {
-            new() { MessageDescription = "Message 1" }
+            new(new ChatMessage { MessageDescription = "Message 1" })
         };
 
-        var result = await messagePublisher.SendBatchAsync(messages, new SQSOptions
+        var result = await messagePublisher.SendBatchAsync(entries, new SQSBatchOptions
         {
             QueueUrl = "overrideEndpoint"
         });
@@ -1454,7 +1453,7 @@ public class MessagePublisherTests
         };
 
         await Assert.ThrowsAsync<InvalidMessageException>(
-            () => messagePublisher.SendBatchAsync(entries));
+            () => messagePublisher.SendBatchAsync<ChatMessage>(entries));
     }
 
     [Fact]
@@ -1520,7 +1519,7 @@ public class MessagePublisherTests
         var messagePublisher = SetupSQSPublisher(serviceProvider);
 
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => messagePublisher.SendBatchAsync((IEnumerable<SQSBatchEntry<ChatMessage>>)null!));
+            () => messagePublisher.SendBatchAsync<ChatMessage>((IEnumerable<SQSBatchEntry<ChatMessage>>)null!));
     }
 
     [Fact]

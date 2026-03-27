@@ -51,14 +51,13 @@ public class SQSBatchPublisherFifoTests : IAsyncLifetime
         var publishStartTime = DateTime.UtcNow;
         var sqsPublisher = _serviceProvider.GetRequiredService<ISQSPublisher>();
 
-        var messages = Enumerable.Range(1, 5)
-            .Select(i => new ChatMessage { MessageDescription = $"FifoBatchTest{i}" })
+        var entries = Enumerable.Range(1, 5)
+            .Select(i => new SQSBatchEntry<ChatMessage>(
+                new ChatMessage { MessageDescription = $"FifoBatchTest{i}" },
+                new SQSMessageOptions { MessageGroupId = "test-group" }))
             .ToList();
 
-        var batchResponse = await sqsPublisher.SendBatchAsync(messages, new SQSOptions
-        {
-            MessageGroupId = "test-group"
-        });
+        var batchResponse = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
         var publishEndTime = DateTime.UtcNow;
 
         // Verify the batch response
@@ -109,16 +108,16 @@ public class SQSBatchPublisherFifoTests : IAsyncLifetime
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
             new(new ChatMessage { MessageDescription = "GroupA_Message1" },
-                new SQSOptions { MessageGroupId = "groupA" }),
+                new SQSMessageOptions { MessageGroupId = "groupA" }),
             new(new ChatMessage { MessageDescription = "GroupA_Message2" },
-                new SQSOptions { MessageGroupId = "groupA" }),
+                new SQSMessageOptions { MessageGroupId = "groupA" }),
             new(new ChatMessage { MessageDescription = "GroupB_Message1" },
-                new SQSOptions { MessageGroupId = "groupB" }),
+                new SQSMessageOptions { MessageGroupId = "groupB" }),
             new(new ChatMessage { MessageDescription = "GroupB_Message2" },
-                new SQSOptions { MessageGroupId = "groupB" }),
+                new SQSMessageOptions { MessageGroupId = "groupB" }),
         };
 
-        var batchResponse = await sqsPublisher.SendBatchAsync(entries);
+        var batchResponse = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
 
         // Verify the batch response
         Assert.Equal(4, batchResponse.Successful.Count);

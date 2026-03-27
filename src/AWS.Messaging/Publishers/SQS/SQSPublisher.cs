@@ -81,7 +81,7 @@ internal class SQSPublisher : ISQSPublisher
                     throw new InvalidMessageException("The message cannot be null.");
                 }
 
-                var queueUrl = GetPublisherEndpoint(trace, typeof(T), sqsOptions);
+                var queueUrl = GetPublisherEndpoint(trace, typeof(T), sqsOptions?.QueueUrl);
 
                 _logger.LogDebug("Creating the message envelope for the message of type '{MessageType}'.", typeof(T));
                 var messageEnvelope = await _envelopeSerializer.CreateEnvelopeAsync(message);
@@ -91,7 +91,7 @@ internal class SQSPublisher : ISQSPublisher
 
                 var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                var client = ResolveClient(sqsOptions);
+                var client = ResolveClient(sqsOptions?.OverrideClient);
 
                 _logger.LogDebug("Sending the message of type '{MessageType}' to SQS. Publisher Endpoint: {Endpoint}", typeof(T), queueUrl);
                 var sendMessageRequest = CreateSendMessageRequest(queueUrl, messageBody, sqsOptions);
@@ -118,7 +118,7 @@ internal class SQSPublisher : ISQSPublisher
     /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
     /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
     /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
-    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, SQSOptions? sqsOptions = null, CancellationToken token = default)
+    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, CancellationToken token = default)
     {
         if (messages == null)
         {
@@ -126,7 +126,7 @@ internal class SQSPublisher : ISQSPublisher
         }
 
         var entries = messages.Select(m => new SQSBatchEntry<T>(m, null));
-        return await SendBatchAsync(entries, sqsOptions, token);
+        return await SendBatchAsync(entries, null, token);
     }
 
     /// <summary>
@@ -135,7 +135,7 @@ internal class SQSPublisher : ISQSPublisher
     /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
     /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
     /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
-    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSOptions? sqsOptions = null, CancellationToken token = default)
+    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSBatchOptions? batchOptions = null, CancellationToken token = default)
     {
         if (entries == null)
         {
@@ -153,8 +153,8 @@ internal class SQSPublisher : ISQSPublisher
 
                 _logger.LogDebug("Publishing a batch of messages of type '{MessageType}' using the {PublisherType}.", typeof(T), nameof(SQSPublisher));
 
-                var queueUrl = GetPublisherEndpoint(trace, typeof(T), sqsOptions);
-                var client = ResolveClient(sqsOptions);
+                var queueUrl = GetPublisherEndpoint(trace, typeof(T), batchOptions?.QueueUrl);
+                var client = ResolveClient(batchOptions?.OverrideClient);
 
                 // Serialize all messages and build batch request entries
                 var batchRequestEntries = new List<SendMessageBatchRequestEntry>();
@@ -175,7 +175,7 @@ internal class SQSPublisher : ISQSPublisher
 
                     // Use the MessageEnvelope.Id as the batch entry Id so callers can correlate
                     // successes/failures in the response back to their original input messages
-                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, sqsOptions, entry.Options);
+                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, entry.Options);
                     batchRequestEntries.Add(batchEntry);
                 }
 
@@ -259,11 +259,11 @@ internal class SQSPublisher : ISQSPublisher
         }
     }
 
-    private IAmazonSQS ResolveClient(SQSOptions? sqsOptions)
+    private IAmazonSQS ResolveClient(IAmazonSQS? overrideClient)
     {
-        if (sqsOptions?.OverrideClient != null)
+        if (overrideClient != null)
         {
-            return sqsOptions.OverrideClient;
+            return overrideClient;
         }
 
         _sqsClient ??= _awsClientProvider.GetServiceClient<IAmazonSQS>();
@@ -274,22 +274,15 @@ internal class SQSPublisher : ISQSPublisher
         string entryId,
         string queueUrl,
         string messageBody,
-        SQSOptions? sharedOptions,
-        SQSOptions? entryOptions)
+        SQSMessageOptions? entryOptions)
     {
-        // Resolve effective per-message options: entry-level overrides shared-level
-        var effectiveMessageGroupId = entryOptions?.MessageGroupId ?? sharedOptions?.MessageGroupId;
-        var effectiveMessageDeduplicationId = entryOptions?.MessageDeduplicationId ?? sharedOptions?.MessageDeduplicationId;
-        var effectiveDelaySeconds = entryOptions?.DelaySeconds ?? sharedOptions?.DelaySeconds;
-        var effectiveMessageAttributes = entryOptions?.MessageAttributes ?? sharedOptions?.MessageAttributes;
-
-        if (queueUrl.EndsWith(FIFO_SUFFIX) && string.IsNullOrEmpty(effectiveMessageGroupId))
+        if (queueUrl.EndsWith(FIFO_SUFFIX) && string.IsNullOrEmpty(entryOptions?.MessageGroupId))
         {
             var errorMessage =
                 $"You are attempting to send to a FIFO SQS queue but the request does not include a message group ID. " +
-                $"Please specify a message group ID via {nameof(SQSOptions.MessageGroupId)} on either the shared " +
-                $"{nameof(SQSOptions)} parameter or the per-entry {nameof(SQSBatchEntry<object>.Options)}. " +
-                $"Additionally, {nameof(SQSOptions.MessageDeduplicationId)} must also be specified if content based de-duplication is not enabled on the queue.";
+                $"Please specify a message group ID via {nameof(SQSMessageOptions.MessageGroupId)} on the " +
+                $"{nameof(SQSBatchEntry<object>.Options)} for each entry. " +
+                $"Additionally, {nameof(SQSMessageOptions.MessageDeduplicationId)} must also be specified if content based de-duplication is not enabled on the queue.";
 
             _logger.LogError(errorMessage);
             throw new InvalidFifoPublishingRequestException(errorMessage);
@@ -301,17 +294,20 @@ internal class SQSPublisher : ISQSPublisher
             MessageBody = messageBody
         };
 
-        if (!string.IsNullOrEmpty(effectiveMessageGroupId))
-            entry.MessageGroupId = effectiveMessageGroupId;
+        if (entryOptions is null)
+            return entry;
 
-        if (!string.IsNullOrEmpty(effectiveMessageDeduplicationId))
-            entry.MessageDeduplicationId = effectiveMessageDeduplicationId;
+        if (!string.IsNullOrEmpty(entryOptions.MessageGroupId))
+            entry.MessageGroupId = entryOptions.MessageGroupId;
 
-        if (effectiveDelaySeconds.HasValue)
-            entry.DelaySeconds = (int)effectiveDelaySeconds;
+        if (!string.IsNullOrEmpty(entryOptions.MessageDeduplicationId))
+            entry.MessageDeduplicationId = entryOptions.MessageDeduplicationId;
 
-        if (effectiveMessageAttributes is not null)
-            entry.MessageAttributes = effectiveMessageAttributes;
+        if (entryOptions.DelaySeconds.HasValue)
+            entry.DelaySeconds = (int)entryOptions.DelaySeconds;
+
+        if (entryOptions.MessageAttributes is not null)
+            entry.MessageAttributes = entryOptions.MessageAttributes;
 
         return entry;
     }
@@ -365,7 +361,7 @@ internal class SQSPublisher : ISQSPublisher
         return request;
     }
 
-    private string GetPublisherEndpoint(ITelemetryTrace trace, Type messageType, SQSOptions? sqsOptions)
+    private string GetPublisherEndpoint(ITelemetryTrace trace, Type messageType, string? queueUrlOverride)
     {
         var mapping = _messageConfiguration.GetPublisherMapping(messageType);
         if (mapping is null)
@@ -382,10 +378,10 @@ internal class SQSPublisher : ISQSPublisher
 
         var queueUrl = mapping.PublisherConfiguration.PublisherEndpoint;
 
-        // Check if the queue was overriden on this message-specific publishing options
-        if (!string.IsNullOrEmpty(sqsOptions?.QueueUrl))
+        // Check if the queue was overridden on this message-specific publishing options
+        if (!string.IsNullOrEmpty(queueUrlOverride))
         {
-            queueUrl = sqsOptions.QueueUrl;
+            queueUrl = queueUrlOverride;
         }
 
         if (string.IsNullOrEmpty(queueUrl))

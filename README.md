@@ -168,8 +168,8 @@ The `ISQSPublisher` also supports sending messages in batches using the SQS [`Se
 
 The `SendBatchAsync` method accepts a collection of messages and automatically chunks them into groups of 10 (the SQS maximum per batch request).
 
-### Simple batch — shared options for all messages
-When all messages in the batch share the same options (e.g., the same `MessageGroupId` for a FIFO queue), you can pass the messages as a collection along with a single `SQSOptions`:
+### Simple batch — no per-message options
+For standard (non-FIFO) queues where no per-message options are needed, you can pass the messages as a simple collection:
 
 ```csharp
 var sqsPublisher = serviceProvider.GetRequiredService<ISQSPublisher>();
@@ -181,11 +181,8 @@ var messages = new List<ChatMessage>
     new ChatMessage { MessageDescription = "Batch!" }
 };
 
-// Send all messages in a batch with shared options
-var response = await sqsPublisher.SendBatchAsync(messages, new SQSOptions
-{
-    MessageGroupId = "my-group" // Required for FIFO queues
-});
+// Send all messages in a batch
+var response = await sqsPublisher.SendBatchAsync(messages);
 
 // Check the results
 Console.WriteLine($"Successful: {response.Successful.Count}");
@@ -193,21 +190,30 @@ Console.WriteLine($"Failed: {response.Failed.Count}");
 ```
 
 ### Per-message options using `SQSBatchEntry`
-When each message in the batch needs different options (e.g., different `MessageGroupId` values for FIFO queues), use `SQSBatchEntry<T>` to pair each message with its own `SQSOptions`:
+When each message in the batch needs its own options (e.g., different `MessageGroupId` values for FIFO queues), use `SQSBatchEntry<T>` to pair each message with its own `SQSMessageOptions`:
 
 ```csharp
 var entries = new List<SQSBatchEntry<ChatMessage>>
 {
     new SQSBatchEntry<ChatMessage>(
         new ChatMessage { MessageDescription = "User A's message" },
-        new SQSOptions { MessageGroupId = "userA" }),
+        new SQSMessageOptions { MessageGroupId = "userA" }),
     new SQSBatchEntry<ChatMessage>(
         new ChatMessage { MessageDescription = "User B's message" },
-        new SQSOptions { MessageGroupId = "userB" }),
+        new SQSMessageOptions { MessageGroupId = "userB" }),
 };
 
 // Send with per-message options
 var response = await sqsPublisher.SendBatchAsync(entries);
+```
+
+You can also override the queue URL or SQS client for the entire batch using `SQSBatchOptions`:
+
+```csharp
+var response = await sqsPublisher.SendBatchAsync(entries, new SQSBatchOptions
+{
+    QueueUrl = "https://sqs.us-west-2.amazonaws.com/012345678910/AnotherQueue"
+});
 ```
 
 ### Handling the batch response

@@ -5,7 +5,7 @@ namespace AWS.Messaging.Publishers.SQS;
 
 /// <summary>
 /// Represents a single entry in a batch send operation to SQS.
-/// Pairs an application message with optional per-message <see cref="SQSOptions"/>.
+/// Pairs an application message with optional per-message <see cref="SQSMessageOptions"/>.
 /// </summary>
 /// <typeparam name="T">The .NET type of the application message.</typeparam>
 public class SQSBatchEntry<T>
@@ -22,7 +22,7 @@ public class SQSBatchEntry<T>
     /// </summary>
     /// <param name="message">The application message to send.</param>
     /// <param name="options">Optional per-message SQS options.</param>
-    public SQSBatchEntry(T message, SQSOptions? options = null)
+    public SQSBatchEntry(T message, SQSMessageOptions? options = null)
     {
         Message = message;
         Options = options;
@@ -34,15 +34,9 @@ public class SQSBatchEntry<T>
     public T Message { get; set; } = default!;
 
     /// <summary>
-    /// Optional per-message SQS options such as <see cref="SQSOptions.MessageGroupId"/>,
-    /// <see cref="SQSOptions.MessageDeduplicationId"/>, <see cref="SQSOptions.DelaySeconds"/>,
-    /// and <see cref="SQSOptions.MessageAttributes"/>.
-    /// <para>
-    /// Note: <see cref="SQSOptions.QueueUrl"/> and <see cref="SQSOptions.OverrideClient"/> are only
-    /// used from the shared <see cref="SQSOptions"/> parameter passed to
-    /// <see cref="ISQSPublisher.SendBatchAsync{T}(IEnumerable{T}, SQSOptions?, CancellationToken)"/>.
-    /// If set on individual entries, they will be ignored.
-    /// </para>
+    /// Optional per-message options such as <see cref="SQSMessageOptions.MessageGroupId"/>,
+    /// <see cref="SQSMessageOptions.MessageDeduplicationId"/>, <see cref="SQSMessageOptions.DelaySeconds"/>,
+    /// and <see cref="SQSMessageOptions.MessageAttributes"/>.
     /// </summary>
-    public SQSOptions? Options { get; set; }
+    public SQSMessageOptions? Options { get; set; }
 }
