@@ -800,6 +800,79 @@ public class EnvelopeSerializerTests
     }
 
     [Fact]
+    public async Task GenericSerializationCallback_ExtractsSubjectFromTypedMessage()
+    {
+        // ARRANGE
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<AddressInfo>("sqsQueueUrl", "addressInfo");
+            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>("addressInfo");
+            builder.AddSerializationCallback(new GenericSerializationCallback());
+        });
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<AddressInfo>
+        {
+            Id = "123",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "addressInfo",
+            TimeStamp = _testdate,
+            Message = new AddressInfo
+            {
+                Street = "Prince St",
+                Unit = 123,
+                ZipCode = "00001"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT - Verify the serialized output contains the "subject" key extracted from the message payload
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.True(jsonDoc.RootElement.TryGetProperty("subject", out var subjectElement));
+        Assert.Equal("00001", subjectElement.GetString());
+    }
+
+    [Fact]
+    public async Task NonGenericSerializationCallback_StillWorksViaDefaultGenericDelegation()
+    {
+        // ARRANGE - Register a callback that only overrides the non-generic PreSerializationAsync.
+        // The default generic method should delegate to it.
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<AddressInfo>("sqsQueueUrl", "addressInfo");
+            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>("addressInfo");
+            builder.AddSerializationCallback(new NonGenericOnlySerializationCallback());
+        });
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<AddressInfo>
+        {
+            Id = "456",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "addressInfo",
+            TimeStamp = _testdate,
+            Message = new AddressInfo
+            {
+                Street = "Main St",
+                Unit = 1,
+                ZipCode = "99999"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT - Verify the non-generic callback was invoked via the default generic delegation
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.True(jsonDoc.RootElement.TryGetProperty("callback-type", out var callbackTypeElement));
+        Assert.Equal("non-generic", callbackTypeElement.GetString());
+    }
+
+    [Fact]
     public async Task ConvertToEnvelope_WithCustomJsonContentType()
     {
         // ARRANGE
@@ -907,6 +980,36 @@ public class MockSerializationCallback : ISerializationCallback
     public ValueTask PostDeserializationAsync(MessageEnvelope messageEnvelope)
     {
         messageEnvelope.Metadata["Is-Delivered"] = JsonSerializer.SerializeToElement(true);
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A serialization callback that uses the generic <see cref="ISerializationCallback.PreSerializationAsync{T}"/>
+/// to extract a subject from the typed message payload and set it as envelope metadata.
+/// This demonstrates the use case from GitHub discussion #317.
+/// </summary>
+public class GenericSerializationCallback : ISerializationCallback
+{
+    public ValueTask PreSerializationAsync<T>(MessageEnvelope<T> messageEnvelope)
+    {
+        if (messageEnvelope.Message is AddressInfo addressInfo)
+        {
+            messageEnvelope.Metadata["subject"] = JsonSerializer.SerializeToElement(addressInfo.ZipCode);
+        }
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A serialization callback that only overrides the non-generic <see cref="ISerializationCallback.PreSerializationAsync(MessageEnvelope)"/>.
+/// This verifies backward compatibility: the default generic method delegates to the non-generic one.
+/// </summary>
+public class NonGenericOnlySerializationCallback : ISerializationCallback
+{
+    public ValueTask PreSerializationAsync(MessageEnvelope messageEnvelope)
+    {
+        messageEnvelope.Metadata["callback-type"] = JsonSerializer.SerializeToElement("non-generic");
         return ValueTask.CompletedTask;
     }
 }

@@ -91,7 +91,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     {
         try
         {
-            await InvokePreSerializationCallback(envelope);
+            await InvokePreSerializationCallback<T>(envelope);
             var message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
 
             // This blob serves as an intermediate data container because the underlying application message
@@ -410,7 +410,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return subscriberMapping;
     }
 
-    private async ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
+    private async ValueTask InvokePreSerializationCallback<T>(MessageEnvelope<T> messageEnvelope)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
