@@ -19,19 +19,6 @@ namespace AWS.Messaging.Serialization
         }
 
         /// <summary>
-        /// This can be used to set additional metadata to the message envelope before it is serialized and published to an endpoint.
-        /// Unlike the non-generic <see cref="PreSerializationAsync(MessageEnvelope)"/>, this overload provides access to the
-        /// typed <see cref="MessageEnvelope{T}"/>, allowing direct access to the message payload via <see cref="MessageEnvelope{T}.Message"/>.
-        /// This is useful for extracting values from the message to set as envelope metadata (e.g., CloudEvents extension attributes like <c>subject</c>).
-        /// </summary>
-        /// <typeparam name="T">The .NET type of the underlying application message.</typeparam>
-        /// <param name="messageEnvelope">The typed message envelope containing the application message and CloudEvents metadata.</param>
-        ValueTask PreSerializationAsync<T>(MessageEnvelope<T> messageEnvelope)
-        {
-            return PreSerializationAsync((MessageEnvelope)messageEnvelope);
-        }
-
-        /// <summary>
         /// This can be used to encrypt or modify the serialized message envelope before publishing it to an endpoint.
         /// </summary>
         /// <param name="message">The serialized message envelope</param>

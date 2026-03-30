@@ -11,6 +11,7 @@ using AWS.Messaging.Services;
 using Microsoft.Extensions.Logging;
 using AWS.Messaging.Serialization.Parsers;
 using System.Collections.Frozen;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AWS.Messaging.Serialization;
 
@@ -26,6 +27,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     private readonly IDateTimeHandler _dateTimeHandler;
     private readonly IMessageIdGenerator _messageIdGenerator;
     private readonly IMessageSourceHandler _messageSourceHandler;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<EnvelopeSerializer> _logger;
 
     // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
@@ -43,7 +45,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         IMessageSerializer messageSerializer,
         IDateTimeHandler dateTimeHandler,
         IMessageIdGenerator messageIdGenerator,
-        IMessageSourceHandler messageSourceHandler)
+        IMessageSourceHandler messageSourceHandler,
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _messageConfiguration = messageConfiguration;
@@ -51,6 +54,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _dateTimeHandler = dateTimeHandler;
         _messageIdGenerator = messageIdGenerator;
         _messageSourceHandler = messageSourceHandler;
+        _serviceProvider = serviceProvider;
     }
 
     /// <inheritdoc/>
@@ -91,8 +95,9 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     {
         try
         {
-            await InvokePreSerializationCallback<T>(envelope);
-            var message = envelope.Message ?? throw new ArgumentNullException("The underlying application message cannot be null");
+            await InvokePreSerializationCallback(envelope);
+            await InvokeTypedPreSerializationCallbacks(envelope);
+            var message = envelope.Message ?? throw new ArgumentNullException(nameof(envelope.Message), "The underlying application message cannot be null");
 
             // This blob serves as an intermediate data container because the underlying application message
             // must be serialized separately as the _messageSerializer can have a user injected implementation.
@@ -410,11 +415,20 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return subscriberMapping;
     }
 
-    private async ValueTask InvokePreSerializationCallback<T>(MessageEnvelope<T> messageEnvelope)
+    private async ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
             await serializationCallback.PreSerializationAsync(messageEnvelope);
+        }
+    }
+
+    private async ValueTask InvokeTypedPreSerializationCallbacks<T>(MessageEnvelope<T> messageEnvelope)
+    {
+        var typedCallbacks = _serviceProvider.GetServices<ISerializationCallback<T>>();
+        foreach (var callback in typedCallbacks)
+        {
+            await callback.PreSerializationAsync(messageEnvelope);
         }
     }
 

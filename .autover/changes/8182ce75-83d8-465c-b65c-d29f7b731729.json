@@ -4,7 +4,7 @@
       "Name": "AWS.Messaging",
       "Type": "Minor",
       "ChangelogMessages": [
-        "Added generic PreSerializationAsync\u003CT\u003E(MessageEnvelope\u003CT\u003E) overload to ISerializationCallback, allowing typed access to the message payload during pre-serialization callbacks. This enables extracting values from the message to set as CloudEvents extension attributes (e.g., subject)."
+        "Added ISerializationCallback\u003CT\u003E generic interface for type-specific serialization callbacks. Callbacks registered via AddSerializationCallback\u003CTCallback, TMessage\u003E() are only invoked when the message type matches, providing direct typed access to the message payload with zero casting. Also fixed ArgumentNullException constructor usage in EnvelopeSerializer."
       ]
     }
   ]
