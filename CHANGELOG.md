@@ -1,3 +1,8 @@
+## Release 2026-03-31
+
+### AWS.Messaging (1.2.0)
+* Added SendBatchAsync API
+
 ## Release 2026-02-25
 
 ### AWS.Messaging (1.1.2)
