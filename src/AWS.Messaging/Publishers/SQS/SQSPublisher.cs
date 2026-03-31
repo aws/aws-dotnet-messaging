@@ -24,6 +24,7 @@ internal class SQSPublisher : ISQSPublisher
     private IAmazonSQS? _sqsClient;
 
     private const string FIFO_SUFFIX = ".fifo";
+    private const int MAX_BATCH_SIZE = 10;
 
     /// <summary>
     /// Creates an instance of <see cref="SQSPublisher"/>.
@@ -80,7 +81,7 @@ internal class SQSPublisher : ISQSPublisher
                     throw new InvalidMessageException("The message cannot be null.");
                 }
 
-                var queueUrl = GetPublisherEndpoint(trace, typeof(T), sqsOptions);
+                var queueUrl = GetPublisherEndpoint(trace, typeof(T), sqsOptions?.QueueUrl);
 
                 _logger.LogDebug("Creating the message envelope for the message of type '{MessageType}'.", typeof(T));
                 var messageEnvelope = await _envelopeSerializer.CreateEnvelopeAsync(message);
@@ -90,19 +91,7 @@ internal class SQSPublisher : ISQSPublisher
 
                 var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                IAmazonSQS client;
-                if (sqsOptions?.OverrideClient != null)
-                {
-                    // Use the client that the user specified for this message
-                    client = sqsOptions.OverrideClient;
-                }
-                else // use the publisher-level client
-                {
-                    // If we haven't resolved the client yet for this publisher, do so now
-                    _sqsClient ??= _awsClientProvider.GetServiceClient<IAmazonSQS>();
-
-                    client = _sqsClient;
-                }
+                var client = ResolveClient(sqsOptions?.OverrideClient);
 
                 _logger.LogDebug("Sending the message of type '{MessageType}' to SQS. Publisher Endpoint: {Endpoint}", typeof(T), queueUrl);
                 var sendMessageRequest = CreateSendMessageRequest(queueUrl, messageBody, sqsOptions);
@@ -121,6 +110,216 @@ internal class SQSPublisher : ISQSPublisher
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// <inheritdoc/>
+    /// </summary>
+    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
+    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, CancellationToken token = default)
+    {
+        if (messages == null)
+        {
+            throw new ArgumentNullException(nameof(messages), "The messages collection cannot be null.");
+        }
+
+        var entries = messages.Select(m => new SQSBatchEntry<T>(m, null));
+        return await SendBatchAsync(entries, null, token);
+    }
+
+    /// <summary>
+    /// <inheritdoc/>
+    /// </summary>
+    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
+    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSBatchOptions? batchOptions = null, CancellationToken token = default)
+    {
+        if (entries == null)
+        {
+            throw new ArgumentNullException(nameof(entries), "The entries collection cannot be null.");
+        }
+
+        using (var trace = _telemetryFactory.Trace("Publish batch to AWS SQS"))
+        {
+            // Declared outside try so partial results can be captured in the catch block
+            var aggregatedResponse = new SQSSendBatchResponse();
+
+            try
+            {
+                trace.AddMetadata(TelemetryKeys.ObjectType, typeof(T).FullName!);
+
+                _logger.LogDebug("Publishing a batch of messages of type '{MessageType}' using the {PublisherType}.", typeof(T), nameof(SQSPublisher));
+
+                var queueUrl = GetPublisherEndpoint(trace, typeof(T), batchOptions?.QueueUrl);
+                var client = ResolveClient(batchOptions?.OverrideClient);
+
+                // Serialize all messages and build batch request entries
+                var batchRequestEntries = new List<SendMessageBatchRequestEntry>();
+                foreach (var entry in entries)
+                {
+                    if (entry.Message == null)
+                    {
+                        _logger.LogError("A message of type '{MessageType}' in the batch has a null value.", typeof(T));
+                        throw new InvalidMessageException("A message in the batch cannot be null.");
+                    }
+
+                    var messageEnvelope = await _envelopeSerializer.CreateEnvelopeAsync(entry.Message);
+
+                    // Record telemetry context for each envelope to support downstream trace correlation
+                    trace.RecordTelemetryContext(messageEnvelope);
+
+                    var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
+
+                    // Use the MessageEnvelope.Id as the batch entry Id so callers can correlate
+                    // successes/failures in the response back to their original input messages
+                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, entry.Options);
+                    batchRequestEntries.Add(batchEntry);
+                }
+
+                if (batchRequestEntries.Count == 0)
+                {
+                    _logger.LogDebug("No messages to send in the batch of type '{MessageType}'.", typeof(T));
+                    return new SQSSendBatchResponse();
+                }
+
+                _logger.LogDebug("Sending a batch of {MessageCount} message(s) of type '{MessageType}' to SQS. Publisher Endpoint: {Endpoint}",
+                    batchRequestEntries.Count, typeof(T), queueUrl);
+
+                // Chunk into groups of MAX_BATCH_SIZE (10) and send each chunk.
+                // Note: If an AmazonSQSException occurs on a later chunk, earlier chunks may have already
+                // succeeded. The partial results are surfaced on the thrown FailedToPublishBatchException.
+                var chunks = Chunk(batchRequestEntries, MAX_BATCH_SIZE);
+
+                foreach (var chunk in chunks)
+                {
+                    var request = new SendMessageBatchRequest
+                    {
+                        QueueUrl = queueUrl,
+                        Entries = chunk
+                    };
+
+                    var response = await client.SendMessageBatchAsync(request, token);
+
+                    // Aggregate successful entries
+                    if (response.Successful != null)
+                    {
+                        foreach (var success in response.Successful)
+                        {
+                            aggregatedResponse.Successful.Add(new SQSSendBatchResponseEntry
+                            {
+                                Id = success.Id,
+                                MessageId = success.MessageId
+                            });
+                        }
+                    }
+
+                    // Aggregate failed entries
+                    if (response.Failed != null)
+                    {
+                        foreach (var failure in response.Failed)
+                        {
+                            _logger.LogError(
+                                "Failed to send batch entry with Id '{BatchEntryId}' to SQS. Error Code: {ErrorCode}, Error Message: {ErrorMessage}",
+                                failure.Id, failure.Code, failure.Message);
+
+                            aggregatedResponse.Failed.Add(new SQSSendBatchResponseFailedEntry
+                            {
+                                Id = failure.Id,
+                                Code = failure.Code,
+                                Message = failure.Message,
+                                SenderFault = failure.SenderFault ?? false
+                            });
+                        }
+                    }
+                }
+
+                _logger.LogDebug(
+                    "Batch send of type '{MessageType}' completed. {SuccessCount} message(s) succeeded, {FailCount} message(s) failed.",
+                    typeof(T), aggregatedResponse.Successful.Count, aggregatedResponse.Failed.Count);
+
+                return aggregatedResponse;
+            }
+            catch (Exception ex) when (ex is AmazonSQSException)
+            {
+                trace.AddException(ex);
+                // Surface partial results from chunks that may have succeeded before this failure
+                throw new FailedToPublishBatchException(
+                    "Message batch failed to publish. Some messages in earlier chunks may have been sent successfully. " +
+                    "Check the PartialResponse property for details.",
+                    ex, aggregatedResponse);
+            }
+            catch (Exception ex)
+            {
+                trace.AddException(ex);
+                throw;
+            }
+        }
+    }
+
+    private IAmazonSQS ResolveClient(IAmazonSQS? overrideClient)
+    {
+        if (overrideClient != null)
+        {
+            return overrideClient;
+        }
+
+        _sqsClient ??= _awsClientProvider.GetServiceClient<IAmazonSQS>();
+        return _sqsClient;
+    }
+
+    private SendMessageBatchRequestEntry CreateSendMessageBatchRequestEntry(
+        string entryId,
+        string queueUrl,
+        string messageBody,
+        SQSMessageOptions? entryOptions)
+    {
+        if (queueUrl.EndsWith(FIFO_SUFFIX) && string.IsNullOrEmpty(entryOptions?.MessageGroupId))
+        {
+            var errorMessage =
+                $"You are attempting to send to a FIFO SQS queue but the request does not include a message group ID. " +
+                $"Please specify a message group ID via {nameof(SQSMessageOptions.MessageGroupId)} on the " +
+                $"{nameof(SQSBatchEntry<object>.Options)} for each entry. " +
+                $"Additionally, {nameof(SQSMessageOptions.MessageDeduplicationId)} must also be specified if content based de-duplication is not enabled on the queue.";
+
+            _logger.LogError(errorMessage);
+            throw new InvalidFifoPublishingRequestException(errorMessage);
+        }
+
+        var entry = new SendMessageBatchRequestEntry
+        {
+            Id = entryId,
+            MessageBody = messageBody
+        };
+
+        if (entryOptions is null)
+            return entry;
+
+        if (!string.IsNullOrEmpty(entryOptions.MessageGroupId))
+            entry.MessageGroupId = entryOptions.MessageGroupId;
+
+        if (!string.IsNullOrEmpty(entryOptions.MessageDeduplicationId))
+            entry.MessageDeduplicationId = entryOptions.MessageDeduplicationId;
+
+        if (entryOptions.DelaySeconds.HasValue)
+            entry.DelaySeconds = (int)entryOptions.DelaySeconds;
+
+        if (entryOptions.MessageAttributes is not null)
+            entry.MessageAttributes = entryOptions.MessageAttributes;
+
+        return entry;
+    }
+
+    private static List<List<T>> Chunk<T>(List<T> source, int chunkSize)
+    {
+        var chunks = new List<List<T>>();
+        for (var i = 0; i < source.Count; i += chunkSize)
+        {
+            chunks.Add(source.GetRange(i, Math.Min(chunkSize, source.Count - i)));
+        }
+        return chunks;
     }
 
     private SendMessageRequest CreateSendMessageRequest(string queueUrl, string messageBody, SQSOptions? sqsOptions)
@@ -162,7 +361,7 @@ internal class SQSPublisher : ISQSPublisher
         return request;
     }
 
-    private string GetPublisherEndpoint(ITelemetryTrace trace, Type messageType, SQSOptions? sqsOptions)
+    private string GetPublisherEndpoint(ITelemetryTrace trace, Type messageType, string? queueUrlOverride)
     {
         var mapping = _messageConfiguration.GetPublisherMapping(messageType);
         if (mapping is null)
@@ -179,10 +378,10 @@ internal class SQSPublisher : ISQSPublisher
 
         var queueUrl = mapping.PublisherConfiguration.PublisherEndpoint;
 
-        // Check if the queue was overriden on this message-specific publishing options
-        if (!string.IsNullOrEmpty(sqsOptions?.QueueUrl))
+        // Check if the queue was overridden on this message-specific publishing options
+        if (!string.IsNullOrEmpty(queueUrlOverride))
         {
-            queueUrl = sqsOptions.QueueUrl;
+            queueUrl = queueUrlOverride;
         }
 
         if (string.IsNullOrEmpty(queueUrl))
