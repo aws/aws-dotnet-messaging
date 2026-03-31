@@ -162,6 +162,100 @@ await _eventBridgePublisher.PublishAsync(message, new EventBridgeOptions
 });
 ```
 
+## Batch publishing to SQS
+
+The `ISQSPublisher` also supports sending messages in batches using the SQS [`SendMessageBatch`](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_SendMessageBatch.html) API. This can significantly increase throughput — from 300 messages per second with individual sends to up to 3,000 messages per second with batching.
+
+The `SendBatchAsync` method accepts a collection of messages and automatically chunks them into groups of 10 (the SQS maximum per batch request).
+
+### Simple batch — no per-message options
+For standard (non-FIFO) queues where no per-message options are needed, you can pass the messages as a simple collection:
+
+```csharp
+var sqsPublisher = serviceProvider.GetRequiredService<ISQSPublisher>();
+
+var messages = new List<ChatMessage>
+{
+    new ChatMessage { MessageDescription = "Hello" },
+    new ChatMessage { MessageDescription = "World" },
+    new ChatMessage { MessageDescription = "Batch!" }
+};
+
+// Send all messages in a batch
+var response = await sqsPublisher.SendBatchAsync(messages);
+
+// Check the results
+Console.WriteLine($"Successful: {response.Successful.Count}");
+Console.WriteLine($"Failed: {response.Failed.Count}");
+```
+
+### Per-message options using `SQSBatchEntry`
+When each message in the batch needs its own options (e.g., different `MessageGroupId` values for FIFO queues), use `SQSBatchEntry<T>` to pair each message with its own `SQSMessageOptions`:
+
+```csharp
+var entries = new List<SQSBatchEntry<ChatMessage>>
+{
+    new SQSBatchEntry<ChatMessage>(
+        new ChatMessage { MessageDescription = "User A's message" },
+        new SQSMessageOptions { MessageGroupId = "userA" }),
+    new SQSBatchEntry<ChatMessage>(
+        new ChatMessage { MessageDescription = "User B's message" },
+        new SQSMessageOptions { MessageGroupId = "userB" }),
+};
+
+// Send with per-message options
+var response = await sqsPublisher.SendBatchAsync(entries);
+```
+
+You can also override the queue URL or SQS client for the entire batch using `SQSBatchOptions`:
+
+```csharp
+var response = await sqsPublisher.SendBatchAsync(entries, new SQSBatchOptions
+{
+    QueueUrl = "https://sqs.us-west-2.amazonaws.com/012345678910/AnotherQueue"
+});
+```
+
+### Handling the batch response
+`SendBatchAsync` returns a `SQSSendBatchResponse` that contains:
+* `Successful` — a list of `SQSSendBatchResponseEntry` with the `Id` and `MessageId` (SQS-assigned ID) for each successfully sent message.
+* `Failed` — a list of `SQSSendBatchResponseFailedEntry` with `Id`, `Code`, `Message`, and `SenderFault` for each message that failed.
+
+The `Id` on each response entry corresponds to the `MessageEnvelope.Id` that the framework generated for that message, so you can correlate successes and failures back to your original inputs.
+
+```csharp
+var response = await sqsPublisher.SendBatchAsync(messages);
+
+foreach (var success in response.Successful)
+{
+    Console.WriteLine($"Sent message {success.Id} with SQS MessageId: {success.MessageId}");
+}
+
+foreach (var failure in response.Failed)
+{
+    Console.WriteLine($"Failed to send {failure.Id}: [{failure.Code}] {failure.Message}");
+}
+```
+
+> **Note:** Messages are automatically chunked into groups of 10. If you send 25 messages, the framework will make 3 SQS `SendMessageBatch` API calls (10 + 10 + 5) and aggregate the results into a single `SQSSendBatchResponse`.
+
+### Error handling and partial results
+If an `AmazonSQSException` is thrown during a batch send (e.g., on the second chunk after the first chunk already succeeded), the framework throws a `FailedToPublishBatchException`. This exception includes a `PartialResponse` property containing any results from chunks that were sent before the failure occurred, so you can determine what was already published and avoid duplicate retries.
+
+```csharp
+try
+{
+    var response = await sqsPublisher.SendBatchAsync(messages);
+}
+catch (FailedToPublishBatchException ex)
+{
+    // Some messages from earlier chunks may have been sent successfully
+    var alreadySent = ex.PartialResponse?.Successful ?? new List<SQSSendBatchResponseEntry>();
+    Console.WriteLine($"{alreadySent.Count} message(s) were sent before the failure.");
+    Console.WriteLine($"Error: {ex.InnerException?.Message}");
+}
+```
+
 # Consuming Messages
 
 To consume messages, implement a message handler using the `IMessageHandler` interface for each message type you wish to process. The mapping between message types and message handlers is configured in the project startup.
@@ -438,7 +532,8 @@ To use the AWS Message Processing Framework for .NET to publish a message to an 
             "Sid": "Statement1",
             "Effect": "Allow",
             "Action": [
-                "sqs:sendmessage"
+                "sqs:sendmessage",
+                "sqs:sendmessagebatch"
             ],
             "Resource": [
                 "arn:aws:sqs:<region>:<account>:<queue>"
