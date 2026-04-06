@@ -437,7 +437,8 @@ public class EnvelopeSerializerTests
         var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object);
+        var serviceProvider = new ServiceCollection().BuildServiceProvider();
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
         var messageEnvelope = new MessageEnvelope<AddressInfo>
         {
             Id = "123",
@@ -512,7 +513,8 @@ public class EnvelopeSerializerTests
             messageSerializer.Object,
             dateTimeHandler.Object,
             messageIdGenerator.Object,
-            messageSourceHandler.Object);
+            messageSourceHandler.Object,
+            serviceProvider);
 
         var messageEnvelope = new MessageEnvelope<AddressInfo>
         {
@@ -573,13 +575,15 @@ public class EnvelopeSerializerTests
         var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
+        var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var envelopeSerializer = new EnvelopeSerializer(
             logger.Object,
             messageConfiguration,
             messageSerializer.Object,
             dateTimeHandler.Object,
             messageIdGenerator.Object,
-            messageSourceHandler.Object);
+            messageSourceHandler.Object,
+            serviceProvider);
 
         // Create an SQS message with invalid JSON that will cause JsonDocument.Parse to fail
         var sqsMessage = new Message
@@ -755,7 +759,7 @@ public class EnvelopeSerializerTests
         var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object);
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
         var plainTextContent = "Hello, this is plain text content";
         var messageEnvelope = new MessageEnvelope<string>
         {
@@ -797,6 +801,76 @@ public class EnvelopeSerializerTests
         Assert.Equal("plaintext", envelope.MessageTypeIdentifier);
         Assert.Equal("text/plain", envelope.DataContentType);
         Assert.Equal(plainTextContent, envelope.Message);
+    }
+
+    [Fact]
+    public async Task TypedSerializationCallback_ExtractsSubjectWithZeroCasting()
+    {
+        // ARRANGE — Register a typed ISerializationCallback<AddressInfo> via DI.
+        // The callback has direct typed access to the message with no casting required.
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<AddressInfo>("sqsQueueUrl", "addressInfo");
+            builder.AddMessageHandler<AddressInfoHandler, AddressInfo>("addressInfo");
+            builder.AddSerializationCallback<AddressInfoSubjectCallback, AddressInfo>();
+        });
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<AddressInfo>
+        {
+            Id = "123",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "addressInfo",
+            TimeStamp = _testdate,
+            Message = new AddressInfo
+            {
+                Street = "Prince St",
+                Unit = 123,
+                ZipCode = "00001"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT - Verify the serialized output contains the "subject" key extracted from the message payload
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.True(jsonDoc.RootElement.TryGetProperty("subject", out var subjectElement));
+        Assert.Equal("00001", subjectElement.GetString());
+    }
+
+    [Fact]
+    public async Task TypedSerializationCallback_NotInvokedForNonMatchingType()
+    {
+        // ARRANGE — Register a typed callback for AddressInfo, but serialize a ChatMessage.
+        // The callback should NOT be invoked because the type doesn't match.
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<ChatMessage>("sqsQueueUrl", "chatMessage");
+            builder.AddSerializationCallback<AddressInfoSubjectCallback, AddressInfo>();
+        });
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<ChatMessage>
+        {
+            Id = "456",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "chatMessage",
+            TimeStamp = _testdate,
+            Message = new ChatMessage
+            {
+                MessageDescription = "Hello"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT - Verify the "subject" key is NOT present since the callback is for AddressInfo, not ChatMessage
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.False(jsonDoc.RootElement.TryGetProperty("subject", out _));
     }
 
     [Fact]
@@ -907,6 +981,22 @@ public class MockSerializationCallback : ISerializationCallback
     public ValueTask PostDeserializationAsync(MessageEnvelope messageEnvelope)
     {
         messageEnvelope.Metadata["Is-Delivered"] = JsonSerializer.SerializeToElement(true);
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A type-specific serialization callback that implements <see cref="ISerializationCallback{T}"/>
+/// for <see cref="AddressInfo"/>. It extracts the ZipCode as a "subject" CloudEvents extension attribute.
+/// No casting is required — the callback receives direct typed access to the message.
+/// This demonstrates the use case from GitHub discussion #317.
+/// </summary>
+public class AddressInfoSubjectCallback : ISerializationCallback<AddressInfo>
+{
+    public ValueTask PreSerializationAsync(MessageEnvelope<AddressInfo> messageEnvelope)
+    {
+        // Zero casting — direct typed access to the message payload
+        messageEnvelope.Metadata["subject"] = JsonSerializer.SerializeToElement(messageEnvelope.Message.ZipCode);
         return ValueTask.CompletedTask;
     }
 }

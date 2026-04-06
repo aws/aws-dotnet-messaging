@@ -185,6 +185,14 @@ public class MessageBusBuilder : IMessageBusBuilder
     }
 
     /// <inheritdoc/>
+    public IMessageBusBuilder AddSerializationCallback<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TCallback, TMessage>()
+        where TCallback : class, ISerializationCallback<TMessage>
+    {
+        _serviceCollection.AddSingleton<ISerializationCallback<TMessage>, TCallback>();
+        return this;
+    }
+
+    /// <inheritdoc/>
     public IMessageBusBuilder AddMessageSource(string messageSource)
     {
         _messageConfiguration.Source = messageSource;
