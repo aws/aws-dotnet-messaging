@@ -1,3 +1,8 @@
+## Release 2026-04-06
+
+### AWS.Messaging (1.3.0)
+* Added ISerializationCallback<T> generic interface for type-specific serialization callbacks. Callbacks registered via AddSerializationCallback<TCallback, TMessage>() are only invoked when the message type matches, providing direct typed access to the message payload with zero casting. Also fixed ArgumentNullException constructor usage in EnvelopeSerializer.
+
 ## Release 2026-03-31
 
 ### AWS.Messaging (1.2.0)
