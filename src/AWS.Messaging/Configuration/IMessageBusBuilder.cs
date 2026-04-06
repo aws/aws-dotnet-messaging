@@ -92,6 +92,16 @@ public interface IMessageBusBuilder
     IMessageBusBuilder AddSerializationCallback(ISerializationCallback serializationCallback);
 
     /// <summary>
+    /// Adds a type-specific serialization callback that is only invoked when the message being
+    /// serialized matches <typeparamref name="TMessage"/>. This provides direct typed access to
+    /// the message payload without requiring any casting.
+    /// </summary>
+    /// <typeparam name="TCallback">The callback implementation type.</typeparam>
+    /// <typeparam name="TMessage">The message type this callback handles.</typeparam>
+    IMessageBusBuilder AddSerializationCallback<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TCallback, TMessage>()
+        where TCallback : class, ISerializationCallback<TMessage>;
+
+    /// <summary>
     /// Adds a global message source to the message bus.
     /// This source will be added to the message envelope of all the messages sent through the framework.
     /// </summary>
