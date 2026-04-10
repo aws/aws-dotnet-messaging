@@ -63,7 +63,7 @@ public class HandlerInvoker : IHandlerInvoker
                     }
                     catch (Exception e)
                     {
-                        _logger.LogError("Unable to resolve a handler for {HandlerType} while handling message ID {MessageEnvelopeId}.", subscriberMapping.HandlerType, messageEnvelope.Id);
+                        _logger.LogError(e, "Unable to resolve a handler for {HandlerType} while handling message ID {MessageEnvelopeId}.", subscriberMapping.HandlerType, messageEnvelope.Id);
                         throw new InvalidMessageHandlerSignatureException($"Unable to resolve a handler for {subscriberMapping.HandlerType} " +
                                                                           $"while handling message ID {messageEnvelope.Id}.", e);
                     }

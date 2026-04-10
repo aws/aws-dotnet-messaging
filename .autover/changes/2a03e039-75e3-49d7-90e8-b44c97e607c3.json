@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Improving handler exception logging to include original exception"
+      ]
+    }
+  ]
+}
