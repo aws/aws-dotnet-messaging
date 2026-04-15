@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.4.33213.308
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11709.129 insiders
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AWS.Messaging", "src\AWS.Messaging\AWS.Messaging.csproj", "{CD480303-CA3D-4A2F-AD9A-0E56C43FFCF0}"
 EndProject
@@ -40,8 +40,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PollyIntegration", "sampleapps\PollyIntegration\PollyIntegration.csproj", "{86896246-B032-4D34-82BE-CD5ACB6E43F9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppHost", "sampleapps\AppHost\AppHost.csproj", "{C028BF43-16C6-42FB-B422-5AD4F15B492C}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AWS.Messaging.Benchmarks.Serialization", "test\AWS.Messaging.Benchmarks.Serialization\AWS.Messaging.Benchmarks.Serialization.csproj", "{393E7D65-0D04-A989-A4BC-85E36A16530E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -101,10 +99,6 @@ Global
 		{C028BF43-16C6-42FB-B422-5AD4F15B492C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C028BF43-16C6-42FB-B422-5AD4F15B492C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C028BF43-16C6-42FB-B422-5AD4F15B492C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{393E7D65-0D04-A989-A4BC-85E36A16530E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{393E7D65-0D04-A989-A4BC-85E36A16530E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{393E7D65-0D04-A989-A4BC-85E36A16530E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{393E7D65-0D04-A989-A4BC-85E36A16530E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -123,7 +117,6 @@ Global
 		{143DC3E0-A1C6-4670-86F4-E7CD4C8F52CB} = {80DB2C77-6ADD-4A60-B27D-763BDF9659D3}
 		{86896246-B032-4D34-82BE-CD5ACB6E43F9} = {1AA8985B-897C-4BD5-9735-FD8B33FEBFFB}
 		{C028BF43-16C6-42FB-B422-5AD4F15B492C} = {1AA8985B-897C-4BD5-9735-FD8B33FEBFFB}
-		{393E7D65-0D04-A989-A4BC-85E36A16530E} = {80DB2C77-6ADD-4A60-B27D-763BDF9659D3}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7B2B759D-6455-4089-8173-3F1619567B36}

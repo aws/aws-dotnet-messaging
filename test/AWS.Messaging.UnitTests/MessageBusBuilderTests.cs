@@ -667,12 +667,9 @@ public class MessageBusBuilderTests
     }
 
     [Fact]
-    public void MessageBus_Default_RegistersStandardImplementations()
+    public void MessageBus_RegistersStandardImplementations()
     {
-        _serviceCollection.AddAWSMessageBus(builder =>
-        {
-            // No experimental features enabled
-        });
+        _serviceCollection.AddAWSMessageBus(builder => { });
 
         var serviceProvider = _serviceCollection.BuildServiceProvider();
 
@@ -683,22 +680,6 @@ public class MessageBusBuilderTests
         Assert.IsType<MessageSerializer>(messageSerializer);
     }
 
-    [Fact]
-    public void MessageBus_EnableExperimentalFeatures_RegistersExperimentalImplementations()
-    {
-        _serviceCollection.AddAWSMessageBus(builder =>
-        {
-            builder.EnableExperimentalFeatures();
-        });
-
-        var serviceProvider = _serviceCollection.BuildServiceProvider();
-
-        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
-        var messageSerializer = serviceProvider.GetRequiredService<IMessageSerializer>();
-
-        Assert.IsType<EnvelopeSerializerUtf8JsonWriter>(envelopeSerializer);
-        Assert.IsType<MessageSerializerUtf8JsonWriter>(messageSerializer);
-    }
 
     // These services must be present irrespective of whether publishers or subscribers are configured.
     private void CheckRequiredServices(ServiceProvider serviceProvider)

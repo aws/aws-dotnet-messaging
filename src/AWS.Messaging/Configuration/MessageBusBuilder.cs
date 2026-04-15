@@ -32,8 +32,6 @@ public class MessageBusBuilder : IMessageBusBuilder
     private readonly IList<ServiceDescriptor> _additionalServices = new List<ServiceDescriptor>();
     private readonly IServiceCollection _serviceCollection;
 
-    private bool _experimentalFeaturesEnabled;
-
     /// <summary>
     /// Creates an instance of <see cref="MessageBusBuilder"/>.
     /// </summary>
@@ -367,12 +365,6 @@ public class MessageBusBuilder : IMessageBusBuilder
         return this;
     }
 
-    public IMessageBusBuilder EnableExperimentalFeatures()
-    {
-        _experimentalFeaturesEnabled = true;
-        return this;
-    }
-
     internal void Build()
     {
         LoadConfigurationFromEnvironment();
@@ -385,17 +377,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         _serviceCollection.TryAddSingleton(_messageConfiguration.PollingControlToken);
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
         
-        if (_experimentalFeaturesEnabled)
-        {
-            _serviceCollection.AddSingleton<IEnvelopeSerializer, EnvelopeSerializerUtf8JsonWriter>();
-            _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializerUtf8JsonWriter>();
+        _serviceCollection.AddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
+        _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
 
-        }
-        else
-        {
-            _serviceCollection.AddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
-            _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
-        }
 
         _serviceCollection.TryAddSingleton<IDateTimeHandler, DateTimeHandler>();
         _serviceCollection.TryAddSingleton<IMessageIdGenerator, MessageIdGenerator>();
