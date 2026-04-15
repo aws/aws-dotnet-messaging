@@ -29,7 +29,7 @@ public class MessageBusBuilder : IMessageBusBuilder
 {
     private static readonly ConcurrentDictionary<IServiceCollection, MessageConfiguration> _messageConfigurations = new();
     private readonly MessageConfiguration _messageConfiguration;
-    private readonly IList<ServiceDescriptor> _additionalServices = new List<ServiceDescriptor>();
+    private readonly IList<Action<IMessageConfiguration, IServiceCollection>> _additionalServices = new List<Action<IMessageConfiguration, IServiceCollection>>();
     private readonly IServiceCollection _serviceCollection;
 
     /// <summary>
@@ -345,7 +345,14 @@ public class MessageBusBuilder : IMessageBusBuilder
     /// <inheritdoc/>
     public IMessageBusBuilder AddAdditionalService(ServiceDescriptor serviceDescriptor)
     {
-        _additionalServices.Add(serviceDescriptor);
+        _additionalServices.Add((_, services) => services.TryAdd(serviceDescriptor));
+        return this;
+    }
+
+    /// <inheritdoc/>
+    public IMessageBusBuilder AddAdditionalService(Action<IMessageConfiguration, IServiceCollection> action)
+    {
+        _additionalServices.Add(action);
         return this;
     }
 
@@ -454,9 +461,9 @@ public class MessageBusBuilder : IMessageBusBuilder
             }
         }
 
-        foreach (var service in _additionalServices)
+        foreach (var action in _additionalServices)
         {
-            _serviceCollection.TryAdd(service);
+            action.Invoke(_messageConfiguration, _serviceCollection);
         }
     }
 
