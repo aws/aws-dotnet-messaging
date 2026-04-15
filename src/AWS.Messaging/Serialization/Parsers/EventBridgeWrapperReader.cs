@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
@@ -37,12 +38,12 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
     }
 
     /// <inheritdoc/>
-    public (string InnerBody, MessageMetadata Metadata) Extract(
+    public (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(
         ReadOnlySpan<byte> utf8Body, Message originalMessage)
     {
         var reader = new Utf8JsonReader(utf8Body);
         var ebMetadata = new EventBridgeMetadata();
-        string? innerMessage = null;
+        ReadOnlyMemory<byte> innerBodyUtf8 = default;
 
         string? id = null, account = null, region = null;
         List<string>? resources = null;
@@ -61,7 +62,11 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
                 reader.Read();
                 if (reader.TokenType == JsonTokenType.String)
                 {
-                    innerMessage = reader.GetString();
+                    // detail is a JSON string — decode escaped UTF-8 into a rented buffer
+                    int maxBytes = reader.ValueSpan.Length;
+                    byte[] buffer = ArrayPool<byte>.Shared.Rent(maxBytes);
+                    int written = reader.CopyString(buffer);
+                    innerBodyUtf8 = buffer.AsMemory(0, written);
                 }
                 else if (reader.TokenType == JsonTokenType.Null)
                 {
@@ -69,11 +74,13 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
                 }
                 else
                 {
-                    // detail is an object/array — capture raw text
+                    // detail is an object/array — rent from pool and copy the slice
                     int start = (int)reader.TokenStartIndex;
                     reader.Skip();
                     int length = (int)reader.BytesConsumed - start;
-                    innerMessage = Encoding.UTF8.GetString(utf8Body.Slice(start, length));
+                    byte[] buffer = ArrayPool<byte>.Shared.Rent(length);
+                    utf8Body.Slice(start, length).CopyTo(buffer);
+                    innerBodyUtf8 = buffer.AsMemory(0, length);
                 }
             }
             else if (reader.ValueTextEquals(s_detailType))
@@ -133,7 +140,7 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
             }
         }
 
-        if (string.IsNullOrEmpty(innerMessage))
+        if (innerBodyUtf8.IsEmpty)
             throw new InvalidOperationException("EventBridge message does not contain a valid detail property");
 
         ebMetadata.EventId = id;
@@ -142,6 +149,6 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
         ebMetadata.Resources = resources;
 
         var metadata = new MessageMetadata { EventBridgeMetadata = ebMetadata };
-        return (innerMessage, metadata);
+        return (innerBodyUtf8, metadata);
     }
 }

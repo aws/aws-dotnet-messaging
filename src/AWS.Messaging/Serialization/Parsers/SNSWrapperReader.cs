@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
@@ -37,12 +38,12 @@ internal sealed class SNSWrapperReader : IWrapperReader
     }
 
     /// <inheritdoc/>
-    public (string InnerBody, MessageMetadata Metadata) Extract(
+    public (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(
         ReadOnlySpan<byte> utf8Body, Message originalMessage)
     {
         var reader = new Utf8JsonReader(utf8Body);
         var snsMetadata = new SNSMetadata();
-        string? innerMessage = null;
+        ReadOnlyMemory<byte> innerBodyUtf8 = default;
 
         while (reader.Read())
         {
@@ -55,7 +56,12 @@ internal sealed class SNSWrapperReader : IWrapperReader
             if (reader.ValueTextEquals(s_message))
             {
                 reader.Read();
-                innerMessage = reader.GetString();
+                // CopyString decodes JSON-escaped UTF-8 directly into a byte buffer,
+                // avoiding the intermediate string allocation from GetString().
+                int maxBytes = reader.ValueSpan.Length; // un-escaped is always <= escaped length
+                byte[] buffer = ArrayPool<byte>.Shared.Rent(maxBytes);
+                int written = reader.CopyString(buffer);
+                innerBodyUtf8 = buffer.AsMemory(0, written);
             }
             else if (reader.ValueTextEquals(s_messageId))
             {
@@ -99,10 +105,10 @@ internal sealed class SNSWrapperReader : IWrapperReader
             }
         }
 
-        if (string.IsNullOrEmpty(innerMessage))
+        if (innerBodyUtf8.IsEmpty)
             throw new InvalidOperationException("SNS message does not contain a valid Message property");
 
         var metadata = new MessageMetadata { SNSMetadata = snsMetadata };
-        return (innerMessage, metadata);
+        return (innerBodyUtf8, metadata);
     }
 }

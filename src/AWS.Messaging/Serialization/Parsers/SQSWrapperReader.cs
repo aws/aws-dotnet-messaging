@@ -15,17 +15,18 @@ internal sealed class SQSWrapperReader : ISQSWrapperReader
 {
     /// <summary>
     /// For SQS fallback: the body IS the envelope. No JSON parsing needed.
-    /// Returns the message body directly and creates SQS metadata from the original message.
+    /// Returns the pre-encoded UTF-8 body bytes directly and creates SQS metadata from the original message.
     /// </summary>
+    /// <param name="utf8Body">The UTF-8 encoded body bytes (already converted by the caller).</param>
     /// <param name="originalMessage">The original SQS message (for SQS-level metadata).</param>
-    /// <returns>The envelope JSON string and SQS metadata.</returns>
-    public (string InnerBody, MessageMetadata Metadata) Extract(Message originalMessage)
+    /// <returns>The envelope UTF-8 bytes and SQS metadata.</returns>
+    public (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(ReadOnlyMemory<byte> utf8Body, Message originalMessage)
     {
         var metadata = new MessageMetadata
         {
             SQSMetadata = MessageMetadataHandler.CreateSQSMetadata(originalMessage)
         };
 
-        return (originalMessage.Body, metadata);
+        return (utf8Body, metadata);
     }
 }

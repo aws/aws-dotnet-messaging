@@ -13,9 +13,10 @@ internal interface ISQSWrapperReader
 {
     /// <summary>
     /// For SQS fallback: the body IS the envelope. No JSON parsing needed.
-    /// Returns the message body directly and creates SQS metadata from the original message.
+    /// Returns the message body as UTF-8 bytes and creates SQS metadata from the original message.
     /// </summary>
+    /// <param name="utf8Body">The UTF-8 encoded body bytes (already converted by the caller).</param>
     /// <param name="originalMessage">The original SQS message (for SQS-level metadata).</param>
-    /// <returns>The envelope JSON string and SQS metadata.</returns>
-    (string InnerBody, MessageMetadata Metadata) Extract(Message originalMessage);
+    /// <returns>The envelope UTF-8 bytes and SQS metadata.</returns>
+    (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(ReadOnlyMemory<byte> utf8Body, Message originalMessage);
 }

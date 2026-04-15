@@ -31,11 +31,11 @@ internal interface IWrapperReader
     bool Validate(in WrapperClassificationResult result);
 
     /// <summary>
-    /// Extracts the inner envelope body string and wrapper-specific metadata from the
+    /// Extracts the inner envelope body as UTF-8 bytes and wrapper-specific metadata from the
     /// raw UTF-8 bytes. Called only when classification + validation succeeds.
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the outer SQS message body.</param>
     /// <param name="originalMessage">The original SQS message (for SQS-level metadata).</param>
-    /// <returns>The inner envelope JSON string and wrapper metadata.</returns>
-    (string InnerBody, MessageMetadata Metadata) Extract(ReadOnlySpan<byte> utf8Body, Message originalMessage);
+    /// <returns>The inner envelope UTF-8 bytes and wrapper metadata.</returns>
+    (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(ReadOnlySpan<byte> utf8Body, Message originalMessage);
 }

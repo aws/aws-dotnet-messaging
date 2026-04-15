@@ -193,23 +193,54 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     }
 
     /// <inheritdoc/>
-    public async ValueTask<ConvertToEnvelopeResult> ConvertToEnvelopeAsync(Message sqsMessage)
+    public ValueTask<ConvertToEnvelopeResult> ConvertToEnvelopeAsync(Message sqsMessage)
+    {
+        // When no serialization callbacks are registered (the common case),
+        // the entire deserialization pipeline is pure synchronous compute —
+        // avoid the async state machine and its heap allocations entirely.
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+        {
+            try
+            {
+                return new ValueTask<ConvertToEnvelopeResult>(ConvertToEnvelopeCore(sqsMessage));
+            }
+            catch (JsonException) when (!_messageConfiguration.LogMessageContent)
+            {
+                _logger.LogError("Failed to create a {MessageEnvelopeName}", nameof(MessageEnvelope));
+                throw new FailedToCreateMessageEnvelopeException($"Failed to create {nameof(MessageEnvelope)}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create a {MessageEnvelopeName}", nameof(MessageEnvelope));
+                throw new FailedToCreateMessageEnvelopeException($"Failed to create {nameof(MessageEnvelope)}", ex);
+            }
+        }
+
+        return ConvertToEnvelopeWithCallbacksAsync(sqsMessage);
+    }
+
+    private async ValueTask<ConvertToEnvelopeResult> ConvertToEnvelopeWithCallbacksAsync(Message sqsMessage)
     {
         try
         {
-            // Get the raw envelope JSON and metadata from the appropriate wrapper (SNS/EventBridge/SQS)
-            var (envelopeJson, metadata) = await ParseOuterWrapper(sqsMessage);
+            var (envelopeUtf8, metadata, rentedOuter) = await ParseOuterWrapper(sqsMessage);
 
-            // Create and populate the envelope with the correct type
-            var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeJson);
+            try
+            {
+                var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
 
-            // Add metadata from outer wrapper
-            envelope.SQSMetadata = metadata.SQSMetadata;
-            envelope.SNSMetadata = metadata.SNSMetadata;
-            envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
+                envelope.SQSMetadata = metadata.SQSMetadata;
+                envelope.SNSMetadata = metadata.SNSMetadata;
+                envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
 
-            await InvokePostDeserializationCallback(envelope);
-            return new ConvertToEnvelopeResult(envelope, subscriberMapping);
+                await InvokePostDeserializationCallback(envelope);
+                return new ConvertToEnvelopeResult(envelope, subscriberMapping);
+            }
+            finally
+            {
+                if (rentedOuter != null)
+                    ArrayPool<byte>.Shared.Return(rentedOuter);
+            }
         }
         catch (JsonException) when (!_messageConfiguration.LogMessageContent)
         {
@@ -220,6 +251,27 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         {
             _logger.LogError(ex, "Failed to create a {MessageEnvelopeName}", nameof(MessageEnvelope));
             throw new FailedToCreateMessageEnvelopeException($"Failed to create {nameof(MessageEnvelope)}", ex);
+        }
+    }
+
+    private ConvertToEnvelopeResult ConvertToEnvelopeCore(Message sqsMessage)
+    {
+        var (envelopeUtf8, metadata, rentedOuter) = ParseOuterWrapperCore(sqsMessage);
+
+        try
+        {
+            var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
+
+            envelope.SQSMetadata = metadata.SQSMetadata;
+            envelope.SNSMetadata = metadata.SNSMetadata;
+            envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
+
+            return new ConvertToEnvelopeResult(envelope, subscriberMapping);
+        }
+        finally
+        {
+            if (rentedOuter != null)
+                ArrayPool<byte>.Shared.Return(rentedOuter);
         }
     }
 
@@ -269,198 +321,194 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         "data"
     }.ToFrozenSet();
 
-    private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
+    private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(ReadOnlySpan<byte> utf8Envelope)
     {
-        var byteCount = Encoding.UTF8.GetByteCount(envelopeString);
-        byte[]? rented = null;
-        Span<byte> utf8Envelope = byteCount <= 2048
-            ? stackalloc byte[byteCount]
-            : (rented = ArrayPool<byte>.Shared.Rent(byteCount)).AsSpan(0, byteCount);
+        var reader = new Utf8JsonReader(utf8Envelope);
 
-        try
+        // CloudEvent properties
+        string? id = null, source = null, specVersion = null, type = null, dataContentType = null;
+        DateTimeOffset? time = null;
+
+        // Track data element byte range for deferred deserialization
+        int dataStart = -1, dataLength = 0;
+        bool dataIsString = false;
+        string? dataStringValue = null;
+
+        // Extension attributes (unknown properties)
+        Dictionary<string, JsonElement>? metadata = null;
+
+        while (reader.Read())
         {
-            Encoding.UTF8.GetBytes(envelopeString, utf8Envelope);
+            if (reader.CurrentDepth != 1 || reader.TokenType != JsonTokenType.PropertyName)
+                continue;
 
-            var reader = new Utf8JsonReader(utf8Envelope);
-
-            // CloudEvent properties
-            string? id = null, source = null, specVersion = null, type = null, dataContentType = null;
-            DateTimeOffset? time = null;
-
-            // Track data element byte range for deferred deserialization
-            int dataStart = -1, dataLength = 0;
-            bool dataIsString = false;
-            string? dataStringValue = null;
-
-            // Extension attributes (unknown properties)
-            Dictionary<string, JsonElement>? metadata = null;
-
-            while (reader.Read())
+            if (reader.ValueTextEquals("type"u8))
             {
-                if (reader.CurrentDepth != 1 || reader.TokenType != JsonTokenType.PropertyName)
-                    continue;
-
-                if (reader.ValueTextEquals("type"u8))
+                reader.Read();
+                type = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("id"u8))
+            {
+                reader.Read();
+                id = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("source"u8))
+            {
+                reader.Read();
+                source = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("specversion"u8))
+            {
+                reader.Read();
+                specVersion = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("time"u8))
+            {
+                reader.Read();
+                time = reader.GetDateTimeOffset();
+            }
+            else if (reader.ValueTextEquals("datacontenttype"u8))
+            {
+                reader.Read();
+                dataContentType = reader.GetString();
+            }
+            else if (reader.ValueTextEquals("data"u8))
+            {
+                reader.Read();
+                if (reader.TokenType == JsonTokenType.String)
                 {
-                    reader.Read();
-                    type = reader.GetString();
-                }
-                else if (reader.ValueTextEquals("id"u8))
-                {
-                    reader.Read();
-                    id = reader.GetString();
-                }
-                else if (reader.ValueTextEquals("source"u8))
-                {
-                    reader.Read();
-                    source = reader.GetString();
-                }
-                else if (reader.ValueTextEquals("specversion"u8))
-                {
-                    reader.Read();
-                    specVersion = reader.GetString();
-                }
-                else if (reader.ValueTextEquals("time"u8))
-                {
-                    reader.Read();
-                    time = reader.GetDateTimeOffset();
-                }
-                else if (reader.ValueTextEquals("datacontenttype"u8))
-                {
-                    reader.Read();
-                    dataContentType = reader.GetString();
-                }
-                else if (reader.ValueTextEquals("data"u8))
-                {
-                    reader.Read();
-                    if (reader.TokenType == JsonTokenType.String)
-                    {
-                        dataIsString = true;
-                        dataStringValue = reader.GetString();
-                    }
-                    else
-                    {
-                        dataStart = (int)reader.TokenStartIndex;
-                        reader.Skip();
-                        dataLength = (int)reader.BytesConsumed - dataStart;
-                    }
+                    dataIsString = true;
+                    dataStringValue = reader.GetString();
                 }
                 else
                 {
-                    // CloudEvents extension attribute — must preserve as JsonElement
-                    var propName = reader.GetString()!;
-                    reader.Read();
-                    using var subDoc = JsonDocument.ParseValue(ref reader);
-                    metadata ??= new Dictionary<string, JsonElement>();
-                    metadata[propName] = subDoc.RootElement.Clone();
-                }
-            }
-
-            // Validation
-            if (type is null) throw new InvalidDataException("Message type identifier not found in envelope");
-            if (id is null) throw new InvalidDataException("Required property 'id' is missing");
-            if (source is null) throw new InvalidDataException("Required property 'source' is missing");
-            if (specVersion is null) throw new InvalidDataException("Required property 'specversion' is missing");
-            if (!time.HasValue) throw new InvalidDataException("Required property 'time' is missing");
-
-            var subscriberMapping = GetAndValidateSubscriberMapping(type);
-            var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
-
-            envelope.Id = id;
-            envelope.Source = new Uri(source, UriKind.RelativeOrAbsolute);
-            envelope.Version = specVersion;
-            envelope.MessageTypeIdentifier = type;
-            envelope.TimeStamp = time.Value;
-            envelope.DataContentType = dataContentType;
-
-            if (metadata is not null)
-            {
-                foreach (var kvp in metadata)
-                    envelope.Metadata[kvp.Key] = kvp.Value;
-            }
-
-            // Deserialize the payload
-            object message;
-            bool isJsonContent = IsJsonContentType(dataContentType);
-
-            if (dataIsString)
-            {
-                // "data" was a JSON string value
-                message = _messageSerializer.Deserialize(dataStringValue!, subscriberMapping.MessageType);
-            }
-            else if (dataStart >= 0)
-            {
-                // "data" was an object/array — deserialize from the byte slice
-                var dataSlice = utf8Envelope.Slice(dataStart, dataLength);
-
-                if (_messageSerializerUtf8JsonReader is not null && isJsonContent)
-                {
-                    // Parse the data slice into a JsonElement for the element-based path
-                    using var dataDoc = JsonDocument.Parse(dataSlice.ToArray());
-                    message = _messageSerializerUtf8JsonReader.DeserializeFromElement(dataDoc.RootElement, subscriberMapping.MessageType);
-                }
-                else
-                {
-                    var dataString = Encoding.UTF8.GetString(dataSlice);
-                    message = _messageSerializer.Deserialize(dataString, subscriberMapping.MessageType);
+                    dataStart = (int)reader.TokenStartIndex;
+                    reader.Skip();
+                    dataLength = (int)reader.BytesConsumed - dataStart;
                 }
             }
             else
             {
-                throw new InvalidDataException("Required property 'data' is missing");
+                // CloudEvents extension attribute — must preserve as JsonElement
+                var propName = reader.GetString()!;
+                reader.Read();
+                using var subDoc = JsonDocument.ParseValue(ref reader);
+                metadata ??= new Dictionary<string, JsonElement>();
+                metadata[propName] = subDoc.RootElement.Clone();
             }
+        }
 
-            envelope.SetMessage(message);
-            return (envelope, subscriberMapping);
-        }
-        catch (InvalidDataException)
+        // Validation
+        if (type is null) throw new InvalidDataException("Message type identifier not found in envelope");
+        if (id is null) throw new InvalidDataException("Required property 'id' is missing");
+        if (source is null) throw new InvalidDataException("Required property 'source' is missing");
+        if (specVersion is null) throw new InvalidDataException("Required property 'specversion' is missing");
+        if (!time.HasValue) throw new InvalidDataException("Required property 'time' is missing");
+
+        var subscriberMapping = GetAndValidateSubscriberMapping(type);
+        var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
+
+        envelope.Id = id;
+        envelope.Source = new Uri(source, UriKind.RelativeOrAbsolute);
+        envelope.Version = specVersion;
+        envelope.MessageTypeIdentifier = type;
+        envelope.TimeStamp = time.Value;
+        envelope.DataContentType = dataContentType;
+
+        if (metadata is not null)
         {
-            throw;
+            foreach (var kvp in metadata)
+                envelope.Metadata[kvp.Key] = kvp.Value;
         }
-        catch (Exception ex)
+
+        // Deserialize the payload
+        object message;
+        bool isJsonContent = IsJsonContentType(dataContentType);
+
+        if (dataIsString)
         {
-            _logger.LogError(ex, "Failed to deserialize or validate MessageEnvelope");
-            throw new InvalidDataException("MessageEnvelope instance is not valid", ex);
+            // "data" was a JSON string value
+            message = _messageSerializer.Deserialize(dataStringValue!, subscriberMapping.MessageType);
         }
-        finally
+        else if (dataStart >= 0)
         {
-            if (rented != null)
-                ArrayPool<byte>.Shared.Return(rented);
+            // "data" was an object/array — deserialize directly from the byte slice
+            var dataSlice = utf8Envelope.Slice(dataStart, dataLength);
+
+            if (_messageSerializerUtf8JsonReader is not null && isJsonContent)
+            {
+                // Direct span-based deserialization — no JsonDocument or string intermediate
+                message = _messageSerializerUtf8JsonReader.DeserializeFromUtf8Bytes(dataSlice, subscriberMapping.MessageType);
+            }
+            else
+            {
+                var dataString = Encoding.UTF8.GetString(dataSlice);
+                message = _messageSerializer.Deserialize(dataString, subscriberMapping.MessageType);
+            }
         }
+        else
+        {
+            throw new InvalidDataException("Required property 'data' is missing");
+        }
+
+        envelope.SetMessage(message);
+        return (envelope, subscriberMapping);
     }
 
-    private async Task<(string MessageBody, MessageMetadata Metadata)> ParseOuterWrapper(Message sqsMessage)
+    private ValueTask<(ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer)> ParseOuterWrapper(Message sqsMessage)
+    {
+        // When no serialization callbacks are registered (the common case),
+        // avoid the async state machine entirely — pure synchronous compute.
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+        {
+            return new ValueTask<(ReadOnlyMemory<byte>, MessageMetadata, byte[]?)>(
+                ParseOuterWrapperCore(sqsMessage));
+        }
+
+        return ParseOuterWrapperAsync(sqsMessage);
+    }
+
+    private async ValueTask<(ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer)> ParseOuterWrapperAsync(Message sqsMessage)
     {
         sqsMessage.Body = await InvokePreDeserializationCallback(sqsMessage.Body);
+        return ParseOuterWrapperCore(sqsMessage);
+    }
 
-        // Convert to UTF-8 for the Utf8JsonReader-based classifier
+    private (ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer) ParseOuterWrapperCore(Message sqsMessage)
+    {
+        // Convert to UTF-8 once — this buffer is used by the classifier and wrapper readers,
+        // and for the SQS path it IS the envelope bytes fed to DeserializeEnvelope.
         var bodyLength = Encoding.UTF8.GetByteCount(sqsMessage.Body);
-        byte[]? rented = null;
-        Span<byte> utf8Body = bodyLength <= 2048
-            ? stackalloc byte[bodyLength]
-            : (rented = ArrayPool<byte>.Shared.Rent(bodyLength)).AsSpan(0, bodyLength);
+        byte[] rented = ArrayPool<byte>.Shared.Rent(bodyLength);
+        Encoding.UTF8.GetBytes(sqsMessage.Body, rented.AsSpan(0, bodyLength));
+        var utf8Body = rented.AsMemory(0, bodyLength);
 
-        try
+        var classification = _classifier.Classify(utf8Body.Span);
+
+        if (classification.WrapperType == WrapperType.Sqs)
         {
-            Encoding.UTF8.GetBytes(sqsMessage.Body, utf8Body);
-
-            var classification = _classifier.Classify(utf8Body);
-
-            if (classification.WrapperType == WrapperType.Sqs)
-            {
-                // Fast path: body IS the envelope, no JSON parsing needed
-                return _sqsReader.Extract(sqsMessage);
-            }
-
-            // SNS or EventBridge: delegate to the matched reader for metadata + body extraction
-            var reader = _classifier.GetReader(classification.WrapperType);
-            return reader.Extract(utf8Body, sqsMessage);
+            // Fast path: body IS the envelope — pass the rented buffer through directly
+            var (innerUtf8, metadata) = _sqsReader.Extract(utf8Body, sqsMessage);
+            return (innerUtf8, metadata, rented);
         }
-        finally
+
+        // SNS or EventBridge: delegate to the matched reader for metadata + body extraction
+        var reader = _classifier.GetReader(classification.WrapperType);
+        var (wrapperUtf8, wrapperMetadata) = reader.Extract(utf8Body.Span, sqsMessage);
+
+        // The wrapper reader rents its own buffer from ArrayPool for the inner body,
+        // so we can return the outer buffer now.
+        ArrayPool<byte>.Shared.Return(rented);
+
+        // Extract the pool-rented backing array so the caller can return it after deserialization.
+        // Both SNS (CopyString) and EventBridge (Rent+CopyTo) paths produce pool-rented arrays.
+        byte[]? innerRented = null;
+        if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(wrapperUtf8, out var segment) && segment.Array != null)
         {
-            if (rented != null)
-                ArrayPool<byte>.Shared.Return(rented);
+            innerRented = segment.Array;
         }
+
+        return (wrapperUtf8, wrapperMetadata, innerRented);
     }
 
     private SubscriberMapping GetAndValidateSubscriberMapping(string messageTypeIdentifier)
@@ -483,7 +531,15 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return subscriberMapping;
     }
 
-    private async ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
+    private ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
+    {
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return default;
+
+        return InvokePreSerializationCallbackAsync(messageEnvelope);
+    }
+
+    private async ValueTask InvokePreSerializationCallbackAsync(MessageEnvelope messageEnvelope)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
@@ -500,7 +556,15 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         }
     }
 
-    private async ValueTask<string> InvokePostSerializationCallback(string message)
+    private ValueTask<string> InvokePostSerializationCallback(string message)
+    {
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return new ValueTask<string>(message);
+
+        return InvokePostSerializationCallbackAsync(message);
+    }
+
+    private async ValueTask<string> InvokePostSerializationCallbackAsync(string message)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
@@ -509,7 +573,15 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return message;
     }
 
-    private async ValueTask<string> InvokePreDeserializationCallback(string message)
+    private ValueTask<string> InvokePreDeserializationCallback(string message)
+    {
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return new ValueTask<string>(message);
+
+        return InvokePreDeserializationCallbackAsync(message);
+    }
+
+    private async ValueTask<string> InvokePreDeserializationCallbackAsync(string message)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
@@ -518,7 +590,15 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return message;
     }
 
-    private async ValueTask InvokePostDeserializationCallback(MessageEnvelope messageEnvelope)
+    private ValueTask InvokePostDeserializationCallback(MessageEnvelope messageEnvelope)
+    {
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return default;
+
+        return InvokePostDeserializationCallbackAsync(messageEnvelope);
+    }
+
+    private async ValueTask InvokePostDeserializationCallbackAsync(MessageEnvelope messageEnvelope)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
