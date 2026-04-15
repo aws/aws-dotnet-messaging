@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Buffers;
-using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Internal;
@@ -16,20 +15,20 @@ namespace AWS.Messaging.Serialization.Parsers;
 /// </summary>
 internal sealed class SNSWrapperReader : IWrapperReader
 {
-    private static readonly byte[] s_type = Encoding.UTF8.GetBytes("Type");
-    private static readonly byte[] s_messageId = Encoding.UTF8.GetBytes("MessageId");
-    private static readonly byte[] s_topicArn = Encoding.UTF8.GetBytes("TopicArn");
-    private static readonly byte[] s_message = Encoding.UTF8.GetBytes("Message");
-    private static readonly byte[] s_timestamp = Encoding.UTF8.GetBytes("Timestamp");
-    private static readonly byte[] s_unsubscribeUrl = Encoding.UTF8.GetBytes("UnsubscribeURL");
-    private static readonly byte[] s_subject = Encoding.UTF8.GetBytes("Subject");
-    private static readonly byte[] s_messageAttributes = Encoding.UTF8.GetBytes("MessageAttributes");
+    private static readonly byte[] s_type = "Type"u8.ToArray();
+    private static readonly byte[] s_messageId = "MessageId"u8.ToArray();
+    private static readonly byte[] s_topicArn = "TopicArn"u8.ToArray();
+    private static readonly byte[] s_message = "Message"u8.ToArray();
+    private static readonly byte[] s_timestamp = "Timestamp"u8.ToArray();
+    private static readonly byte[] s_unsubscribeUrl = "UnsubscribeURL"u8.ToArray();
+    private static readonly byte[] s_subject = "Subject"u8.ToArray();
+    private static readonly byte[] s_messageAttributes = "MessageAttributes"u8.ToArray();
 
     /// <inheritdoc/>
     public WrapperType WrapperType => WrapperType.Sns;
 
     /// <inheritdoc/>
-    public byte[][] GetDiscriminatorKeys() => new[] { s_type, s_messageId, s_topicArn };
+    public byte[][] GetDiscriminatorKeys() => [s_type, s_messageId, s_topicArn];
 
     /// <inheritdoc/>
     public bool Validate(in WrapperClassificationResult result)

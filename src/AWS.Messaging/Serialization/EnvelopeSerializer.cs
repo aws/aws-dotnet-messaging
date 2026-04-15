@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
+using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -275,7 +276,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         }
     }
 
-    private bool IsJsonContentType(string? dataContentType)
+    private static bool IsJsonContentType(string? dataContentType)
     {
         if (string.IsNullOrWhiteSpace(dataContentType))
         {

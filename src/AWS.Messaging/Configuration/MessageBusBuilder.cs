@@ -30,7 +30,7 @@ public class MessageBusBuilder : IMessageBusBuilder
 {
     private static readonly ConcurrentDictionary<IServiceCollection, MessageConfiguration> _messageConfigurations = new();
     private readonly MessageConfiguration _messageConfiguration;
-    private readonly IList<ServiceDescriptor> _additionalServices = new List<ServiceDescriptor>();
+    private readonly List<ServiceDescriptor> _additionalServices = [];
     private readonly IServiceCollection _serviceCollection;
 
     /// <summary>

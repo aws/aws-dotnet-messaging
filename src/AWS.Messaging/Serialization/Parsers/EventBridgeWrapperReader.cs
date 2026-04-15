@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Buffers;
-using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 
@@ -15,20 +14,20 @@ namespace AWS.Messaging.Serialization.Parsers;
 /// </summary>
 internal sealed class EventBridgeWrapperReader : IWrapperReader
 {
-    private static readonly byte[] s_detail = Encoding.UTF8.GetBytes("detail");
-    private static readonly byte[] s_detailType = Encoding.UTF8.GetBytes("detail-type");
-    private static readonly byte[] s_source = Encoding.UTF8.GetBytes("source");
-    private static readonly byte[] s_time = Encoding.UTF8.GetBytes("time");
-    private static readonly byte[] s_id = Encoding.UTF8.GetBytes("id");
-    private static readonly byte[] s_account = Encoding.UTF8.GetBytes("account");
-    private static readonly byte[] s_region = Encoding.UTF8.GetBytes("region");
-    private static readonly byte[] s_resources = Encoding.UTF8.GetBytes("resources");
+    private static readonly byte[] s_detail = "detail"u8.ToArray();
+    private static readonly byte[] s_detailType = "detail-type"u8.ToArray();
+    private static readonly byte[] s_source = "source"u8.ToArray();
+    private static readonly byte[] s_time = "time"u8.ToArray();
+    private static readonly byte[] s_id = "id"u8.ToArray();
+    private static readonly byte[] s_account = "account"u8.ToArray();
+    private static readonly byte[] s_region = "region"u8.ToArray();
+    private static readonly byte[] s_resources = "resources"u8.ToArray();
 
     /// <inheritdoc/>
     public WrapperType WrapperType => WrapperType.EventBridge;
 
     /// <inheritdoc/>
-    public byte[][] GetDiscriminatorKeys() => new[] { s_detail, s_detailType, s_source, s_time };
+    public byte[][] GetDiscriminatorKeys() => [s_detail, s_detailType, s_source, s_time];
 
     /// <inheritdoc/>
     public bool Validate(in WrapperClassificationResult result)

@@ -35,8 +35,5 @@ public class SerializationOptions
     /// </summary>
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050",
         Justification = "Consumers relying on trimming would have been required to call the AddAWSMessageBus overload that takes in JsonSerializerContext that will be used here to avoid the call that requires unreferenced code.")]
-    public SerializationOptions()
-    {
-
-    }
+    public SerializationOptions() { }
 }

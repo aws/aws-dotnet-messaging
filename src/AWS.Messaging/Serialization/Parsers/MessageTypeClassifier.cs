@@ -1,7 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-using System.Text;
 using System.Text.Json;
 
 namespace AWS.Messaging.Serialization.Parsers;
@@ -14,7 +13,7 @@ namespace AWS.Messaging.Serialization.Parsers;
 internal sealed class MessageTypeClassifier : IMessageTypeClassifier
 {
     // Pre-encoded UTF-8 bytes for the "Type" property name, used to capture the SNS "Type" value.
-    private static readonly byte[] s_typePropertyUtf8 = Encoding.UTF8.GetBytes("Type");
+    private static readonly byte[] s_typePropertyUtf8 = "Type"u8.ToArray();
 
     private readonly ReaderEntry[] _entries;
 
@@ -156,17 +155,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
         }
     }
 
-    private readonly struct ReaderEntry
-    {
-        public readonly IWrapperReader Reader;
-        public readonly byte[][] Keys;
-        public readonly ulong RequiredMask;
-
-        public ReaderEntry(IWrapperReader reader, byte[][] keys, ulong requiredMask)
-        {
-            Reader = reader;
-            Keys = keys;
-            RequiredMask = requiredMask;
-        }
-    }
+    private readonly record struct ReaderEntry(
+        IWrapperReader Reader,
+        byte[][] Keys,
+        ulong RequiredMask);
 }

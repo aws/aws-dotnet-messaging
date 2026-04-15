@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AWS.Messaging.Configuration;
@@ -121,7 +122,7 @@ internal sealed partial class MessageSerializer : IMessageSerializer, IMessageSe
         {
             if (_messageConfiguration.LogMessageContent)
             {
-                Logs.DeserializingMessageWithContent(_logger, deserializedType, System.Text.Encoding.UTF8.GetString(utf8Json));
+                Logs.DeserializingMessageWithContent(_logger, deserializedType, Encoding.UTF8.GetString(utf8Json));
             }
             else
             {

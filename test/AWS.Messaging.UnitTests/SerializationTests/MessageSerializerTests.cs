@@ -9,12 +9,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Services;
 using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
-using Moq;
 using Xunit;
 
 namespace AWS.Messaging.UnitTests.SerializationTests;
@@ -293,7 +293,7 @@ public class MessageSerializerTests
             }
         };
 
-        var buffer = new RentArrayBufferWriter();
+        using var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         // ACT
@@ -329,7 +329,7 @@ public class MessageSerializerTests
             }
         };
 
-        var buffer = new RentArrayBufferWriter();
+        using var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         serializer.SerializeToBuffer(writer, person);
@@ -366,7 +366,7 @@ public class MessageSerializerTests
             }
         };
 
-        var buffer = new RentArrayBufferWriter();
+        using var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         serializer.SerializeToBuffer(writer, person);
@@ -395,7 +395,7 @@ public class MessageSerializerTests
         unsupportedType1.Type = unsupportedType2;
         unsupportedType2.Type = unsupportedType1;
 
-        var buffer = new RentArrayBufferWriter();
+        using var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));
@@ -417,7 +417,7 @@ public class MessageSerializerTests
         unsupportedType1.Type = unsupportedType2;
         unsupportedType2.Type = unsupportedType1;
 
-        var buffer = new RentArrayBufferWriter();
+        using var buffer = new RentArrayBufferWriter();
         using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
 
         var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));
@@ -438,8 +438,8 @@ public class JsonSerializerContextClassData : IEnumerable<object[]>
 {
     public IEnumerator<object[]> GetEnumerator()
     {
-        yield return new object[] { new NullMessageJsonSerializerContextContainer() };
-        yield return new object[] { new DefaultMessageJsonSerializerContextContainer(UnitTestsSerializerContext.Default) };
+        yield return [new NullMessageJsonSerializerContextContainer()];
+        yield return [new DefaultMessageJsonSerializerContextContainer(UnitTestsSerializerContext.Default)];
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
