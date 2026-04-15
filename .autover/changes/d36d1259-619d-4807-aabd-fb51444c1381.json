@@ -1,0 +1,12 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Improve handler exception logging to include original exception",
+        "Fix issue not supporting handlers that use explicit interface implementation by refactoring invoker to not use reflection"
+      ]
+    }
+  ]
+}

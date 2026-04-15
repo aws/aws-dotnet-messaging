@@ -99,12 +99,16 @@ public class MessageBusBuilder : IMessageBusBuilder
     public IMessageBusBuilder AddMessageHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THandler, TMessage>(string? messageTypeIdentifier = null)
         where THandler : IMessageHandler<TMessage>
     {
-        return AddMessageHandler(typeof(THandler), typeof(TMessage), () => new MessageEnvelope<TMessage>(), messageTypeIdentifier);
+        static Task<MessageProcessStatus> handlerInvoker(object handler, MessageEnvelope envelope, CancellationToken token)
+        {
+            return ((IMessageHandler<TMessage>)handler).HandleAsync((MessageEnvelope<TMessage>)envelope, token);
+        }
+        return AddMessageHandler(typeof(THandler), typeof(TMessage), () => new MessageEnvelope<TMessage>(), handlerInvoker, messageTypeIdentifier);
     }
 
-    private IMessageBusBuilder AddMessageHandler([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, string? messageTypeIdentifier = null)
+    private IMessageBusBuilder AddMessageHandler([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, Func<object, MessageEnvelope, CancellationToken, Task<MessageProcessStatus>> handlerInvoker, string? messageTypeIdentifier = null)
     {
-        var subscriberMapping = new SubscriberMapping(handlerType, messageType, envelopeFactory, messageTypeIdentifier);
+        var subscriberMapping = new SubscriberMapping(handlerType, messageType, envelopeFactory, handlerInvoker, messageTypeIdentifier);
         _messageConfiguration.SubscriberMappings.Add(subscriberMapping);
         return this;
     }
@@ -282,7 +286,15 @@ public class MessageBusBuilder : IMessageBusBuilder
                     return (MessageEnvelope)envelope;
                 }
 
-                AddMessageHandler(handlerType, messageType, envelopeFactory, messageHandler.MessageTypeIdentifier);
+                // Build a reflection-based handler invoker since the generic types are not
+                // known at compile time in this config-driven path.
+                var handlerInterfaceType = typeof(IMessageHandler<>).MakeGenericType(messageType);
+                var handleAsyncMethod = handlerInterfaceType.GetMethod(nameof(IMessageHandler<object>.HandleAsync))!;
+                Task<MessageProcessStatus> handlerInvoker(object handler, MessageEnvelope envelope, CancellationToken token)
+                {
+                    return (Task<MessageProcessStatus>)handleAsyncMethod.Invoke(handler, new object[] { envelope, token })!;
+                }
+                AddMessageHandler(handlerType, messageType, envelopeFactory, handlerInvoker, messageHandler.MessageTypeIdentifier);
             }
         }
 
