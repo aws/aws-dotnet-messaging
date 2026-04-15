@@ -54,6 +54,17 @@ public interface IMessageBusBuilder
         where THandler : IMessageHandler<TMessage>;
 
     /// <summary>
+    /// Adds a middleware to the subscriber message bus pipeline.
+    /// </summary>
+    /// <remarks>
+    /// Middleware will be executed in the order in which it is added.
+    /// </remarks>
+    /// <typeparam name="TMiddleware">The type that implements <see cref="IMiddleware"/></typeparam>
+    /// <param name="serviceLifetime">The lifetime of the middleware.</param>
+    IMessageBusBuilder AddMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMiddleware>(ServiceLifetime serviceLifetime = ServiceLifetime.Singleton)
+        where TMiddleware : class, IMiddleware;
+
+    /// <summary>
     /// Adds an SQS queue to poll for messages.
     /// </summary>
     /// <param name="queueUrl">The SQS queue to poll for messages.</param>

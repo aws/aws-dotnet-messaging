@@ -74,6 +74,37 @@ public class ChatMessageHandlerWithDisposableServices : IMessageHandler<ChatMess
     }
 }
 
+public class ChatExceptionHandlerAndDisposableServices : IMessageHandler<ChatMessage>
+{
+    public ChatExceptionHandlerAndDisposableServices(TestDisposableServiceAsync testDisposableServiceAsync, TestDisposableService testDisposable)
+    {
+    }
+
+    public Task<MessageProcessStatus> HandleAsync(MessageEnvelope<ChatMessage> messageEnvelope, CancellationToken token = default)
+    {
+        throw new CustomHandlerException($"Unable to process message {messageEnvelope.Id}");
+    }
+
+    public class TestDisposableServiceAsync : IAsyncDisposable
+    {
+        public static long CallCount { get; set; } = 0;
+        public ValueTask DisposeAsync()
+        {
+            CallCount++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    public class TestDisposableService : IDisposable
+    {
+        public static long CallCount { get; set; } = 0;
+        public void Dispose()
+        {
+            CallCount++;
+        }
+    }
+}
+
 public class PlainTextHandler : IMessageHandler<string>
 {
     public Task<MessageProcessStatus> HandleAsync(MessageEnvelope<string> messageEnvelope, CancellationToken token = default)

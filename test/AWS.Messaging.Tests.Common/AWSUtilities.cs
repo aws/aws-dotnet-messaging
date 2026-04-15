@@ -118,7 +118,7 @@ public static class AWSUtilities
     {
         // Create bucket if it doesn't exist
         var listBucketsResponse = await s3Client.ListBucketsAsync();
-        if (listBucketsResponse.Buckets.Find((bucket) => bucket.BucketName == bucketName) == null)
+        if (listBucketsResponse.Buckets?.Find((bucket) => bucket.BucketName == bucketName) == null)
         {
             var putBucketRequest = new PutBucketRequest
             {

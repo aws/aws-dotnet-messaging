@@ -24,4 +24,5 @@ public static class TelemetryKeys
     internal const string MessageId = "aws.messaging.messageId";
     internal const string PublishTargetType = "aws.messaging.publishTargetType";
     internal const string HandlerType = "aws.messaging.handlerType";
+    internal const string Retry = "aws.messaging.retry";
 }
