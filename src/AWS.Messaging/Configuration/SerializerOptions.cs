@@ -23,12 +23,12 @@ public class SerializationOptions
     };
 
     /// <summary>
-    /// When set to true, it will clean the rented buffers after each use.
+    /// Configuration options for rented buffer management used during message serialization.
     /// </summary>
     /// <remarks>
-    /// Setting this to false can improve performance in high-throughput scenarios at cost of potential security issues
+    /// Custom implementations of IMessageSerializer relying on rented buffers are required to follow these options.
     /// </remarks>
-    public bool CleanRentedBuffers { get; set; } = true;
+    public RentedBufferOptions RentedBufferOptions { get; set; } = new();
 
     /// <summary>
     /// Default constructor

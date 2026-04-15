@@ -4,6 +4,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
@@ -11,6 +13,7 @@ using AWS.Messaging.Services;
 using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Moq;
 using Xunit;
 
@@ -18,12 +21,7 @@ namespace AWS.Messaging.UnitTests.SerializationTests;
 
 public class MessageSerializerTests
 {
-    private readonly Mock<ILogger<MessageSerializer>> _logger;
-
-    public MessageSerializerTests()
-    {
-        _logger = new Mock<ILogger<MessageSerializer>>();
-    }
+    private readonly FakeLogger<MessageSerializer> _logger = new();
 
     [Theory]
     [ClassData(typeof(JsonSerializerContextClassData))]
@@ -59,7 +57,7 @@ public class MessageSerializerTests
     public void Serialize_NoDataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration();
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var person = new PersonInfo
         {
@@ -77,13 +75,13 @@ public class MessageSerializerTests
 
         var jsonString = serializer.Serialize(person).Data;
 
-        _logger.Verify(logger => logger.Log(
-                It.Is<LogLevel>(logLevel => logLevel == LogLevel.Trace),
-                It.Is<EventId>(eventId => eventId.Id == 0),
-                It.Is<It.IsAnyType>((@object, @type) => @object.ToString() == $"Serialized the message object to a raw string with a content length of {jsonString.Length}."),
-                null,
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        Assert.Equal(1, _logger.Collector.Count);
+
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal("Serialized the message object to a raw string with a content length of " + jsonString.Length + ".", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
     }
 
     [Theory]
@@ -91,7 +89,7 @@ public class MessageSerializerTests
     public void Serialize_DataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration{ LogMessageContent = true };
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var person = new PersonInfo
         {
@@ -109,15 +107,12 @@ public class MessageSerializerTests
 
         serializer.Serialize(person);
 
-        _logger.Verify(logger => logger.Log(
-                It.Is<LogLevel>(logLevel => logLevel == LogLevel.Trace),
-                It.Is<EventId>(eventId => eventId.Id == 0),
-                It.Is<It.IsAnyType>((@object, @type) =>
-                    @object.ToString() ==
-                    "Serialized the message object as the following raw string:\n{\"FirstName\":\"Bob\",\"LastName\":\"Stone\",\"Age\":30,\"Gender\":\"Male\",\"Address\":{\"Unit\":12,\"Street\":\"Prince St\",\"ZipCode\":\"00001\"}}"),
-                null,
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        Assert.Equal(1, _logger.Collector.Count);
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal("Serialized the message object as the following raw string:\n{\"FirstName\":\"Bob\",\"LastName\":\"Stone\",\"Age\":30,\"Gender\":\"Male\",\"Address\":{\"Unit\":12,\"Street\":\"Prince St\",\"ZipCode\":\"00001\"}}", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
     }
 
     public class UnsupportedType
@@ -133,7 +128,7 @@ public class MessageSerializerTests
 
         // This test doesn't use the JsonSerializationContext version because System.Text.Json
         // doesn't detect circular references like the reflection version.
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, new NullMessageJsonSerializerContextContainer());
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, new NullMessageJsonSerializerContextContainer());
 
         // Creating an object with circular dependency to force an exception in the JsonSerializer.Serialize method.
         var unsupportedType1 = new UnsupportedType { Name = "type1" };
@@ -152,7 +147,7 @@ public class MessageSerializerTests
     public void Serialize_DataMessageLogging_WithError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration{ LogMessageContent = true };
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         // Creating an object with circular dependency to force an exception in the JsonSerializer.Serialize method.
         var unsupportedType1 = new UnsupportedType { Name = "type1" };
@@ -203,7 +198,7 @@ public class MessageSerializerTests
     public void Deserialize_NoDataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration();
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var jsonString =
             @"{
@@ -220,13 +215,12 @@ public class MessageSerializerTests
 
         serializer.Deserialize<PersonInfo>(jsonString);
 
-        _logger.Verify(logger => logger.Log(
-                It.Is<LogLevel>(logLevel => logLevel == LogLevel.Trace),
-                It.Is<EventId>(eventId => eventId.Id == 0),
-                It.Is<It.IsAnyType>((@object, @type) => @object.ToString() == "Deserializing the following message into type 'AWS.Messaging.UnitTests.Models.PersonInfo'"),
-                null,
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        Assert.Equal(1, _logger.Collector.Count);
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal("Deserializing the following message into type 'AWS.Messaging.UnitTests.Models.PersonInfo'", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
     }
 
     [Theory]
@@ -234,21 +228,19 @@ public class MessageSerializerTests
     public void Deserialize_DataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration{ LogMessageContent = true };
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var jsonString =
             @"{""FirstName"":""Bob""}";
 
         serializer.Deserialize<PersonInfo>(jsonString);
 
-        _logger.Verify(logger => logger.Log(
-                It.Is<LogLevel>(logLevel => logLevel == LogLevel.Trace),
-                It.Is<EventId>(eventId => eventId.Id == 0),
-                It.Is<It.IsAnyType>((@object, @type) => @object.ToString() == "Deserializing the following message into type 'AWS.Messaging.UnitTests.Models.PersonInfo':\n" +
-                    @"{""FirstName"":""Bob""}"),
-                null,
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        Assert.Equal(1, _logger.Collector.Count);
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal("Deserializing the following message into type 'AWS.Messaging.UnitTests.Models.PersonInfo':\n{\"FirstName\":\"Bob\"}", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
     }
 
     [Theory]
@@ -256,7 +248,7 @@ public class MessageSerializerTests
     public void Deserialize_NoDataMessageLogging_WithError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration();
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var jsonString = "{'FirstName':'Bob'}";
 
@@ -271,13 +263,166 @@ public class MessageSerializerTests
     public void Deserialize_DataMessageLogging_WithError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
     {
         var messageConfiguration = new MessageConfiguration{ LogMessageContent = true };
-        IMessageSerializer serializer = new MessageSerializer(_logger.Object, messageConfiguration, messageJsonSerializerContextFactory);
+        IMessageSerializer serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
 
         var jsonString = "{'FirstName':'Bob'}";
 
         var exception = Assert.Throws<FailedToDeserializeApplicationMessageException>(() => serializer.Deserialize<PersonInfo>(jsonString));
 
         Assert.Equal("Failed to deserialize application message into an instance of AWS.Messaging.UnitTests.Models.PersonInfo.", exception.Message);
+        Assert.NotNull(exception.InnerException);
+    }
+
+    [Theory]
+    [ClassData(typeof(JsonSerializerContextClassData))]
+    public void SerializeToBuffer_WritesExpectedJson(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
+    {
+        // ARRANGE
+        IMessageSerializerUtf8JsonWriter serializer = new MessageSerializer(new NullLogger<MessageSerializer>(), new MessageConfiguration(), messageJsonSerializerContextFactory);
+        var person = new PersonInfo
+        {
+            FirstName = "Bob",
+            LastName = "Stone",
+            Age = 30,
+            Gender = Gender.Male,
+            Address = new AddressInfo
+            {
+                Unit = 12,
+                Street = "Prince St",
+                ZipCode = "00001"
+            }
+        };
+
+        var buffer = new RentArrayBufferWriter();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
+
+        // ACT
+        serializer.SerializeToBuffer(writer, person);
+        writer.Flush();
+
+        var jsonString = Encoding.UTF8.GetString(buffer.WrittenSpan);
+
+        // ASSERT
+        var expectedString = "{\"FirstName\":\"Bob\",\"LastName\":\"Stone\",\"Age\":30,\"Gender\":\"Male\",\"Address\":{\"Unit\":12,\"Street\":\"Prince St\",\"ZipCode\":\"00001\"}}";
+        Assert.Equal(expectedString, jsonString);
+        Assert.Equal("application/json", serializer.ContentType);
+    }
+
+    [Theory]
+    [ClassData(typeof(JsonSerializerContextClassData))]
+    public void SerializeToBuffer_NoDataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
+    {
+        var messageConfiguration = new MessageConfiguration();
+        IMessageSerializerUtf8JsonWriter serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
+
+        var person = new PersonInfo
+        {
+            FirstName = "Bob",
+            LastName = "Stone",
+            Age = 30,
+            Gender = Gender.Male,
+            Address = new AddressInfo
+            {
+                Unit = 12,
+                Street = "Prince St",
+                ZipCode = "00001"
+            }
+        };
+
+        var buffer = new RentArrayBufferWriter();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
+
+        serializer.SerializeToBuffer(writer, person);
+        writer.Flush();
+
+        var contentLength = buffer.WrittenSpan.Length;
+
+        Assert.Equal(1, _logger.Collector.Count);
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal($"Serialized the message object to a raw string with a content length of {contentLength}.", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
+    }
+
+    [Theory]
+    [ClassData(typeof(JsonSerializerContextClassData))]
+    public void SerializeToBuffer_DataMessageLogging_NoError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
+    {
+        var messageConfiguration = new MessageConfiguration { LogMessageContent = true };
+        IMessageSerializerUtf8JsonWriter serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
+
+        var person = new PersonInfo
+        {
+            FirstName = "Bob",
+            LastName = "Stone",
+            Age = 30,
+            Gender = Gender.Male,
+            Address = new AddressInfo
+            {
+                Unit = 12,
+                Street = "Prince St",
+                ZipCode = "00001"
+            }
+        };
+
+        var buffer = new RentArrayBufferWriter();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
+
+        serializer.SerializeToBuffer(writer, person);
+        writer.Flush();
+
+        var jsonString = Encoding.UTF8.GetString(buffer.WrittenSpan);
+        var contentLength = Encoding.UTF8.GetByteCount(jsonString);
+
+        Assert.Equal(1, _logger.Collector.Count);
+        var lastRecord = _logger.LatestRecord;
+        Assert.Equal(0, lastRecord.Id.Id);
+        Assert.Equal(LogLevel.Trace, lastRecord.Level);
+        Assert.Equal($"Serialized the message object to a raw string with a content length of {contentLength}.", lastRecord.Message);
+        Assert.Null(lastRecord.Exception);
+    }
+
+    [Fact]
+    public void SerializeToBuffer_NoDataMessageLogging_WithError()
+    {
+        var messageConfiguration = new MessageConfiguration();
+        IMessageSerializerUtf8JsonWriter serializer = new MessageSerializer(_logger, messageConfiguration, new NullMessageJsonSerializerContextContainer());
+
+        // Creating an object with circular dependency to force an exception in the JsonSerializer.Serialize method.
+        var unsupportedType1 = new UnsupportedType { Name = "type1" };
+        var unsupportedType2 = new UnsupportedType { Name = "type2" };
+        unsupportedType1.Type = unsupportedType2;
+        unsupportedType2.Type = unsupportedType1;
+
+        var buffer = new RentArrayBufferWriter();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
+
+        var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));
+
+        Assert.Equal("Failed to serialize application message into a string", exception.Message);
+        Assert.Null(exception.InnerException);
+    }
+
+    [Theory]
+    [ClassData(typeof(JsonSerializerContextClassData))]
+    public void SerializeToBuffer_DataMessageLogging_WithError(IMessageJsonSerializerContextContainer messageJsonSerializerContextFactory)
+    {
+        var messageConfiguration = new MessageConfiguration { LogMessageContent = true };
+        IMessageSerializerUtf8JsonWriter serializer = new MessageSerializer(_logger, messageConfiguration, messageJsonSerializerContextFactory);
+
+        // Creating an object with circular dependency to force an exception in the JsonSerializer.Serialize method.
+        var unsupportedType1 = new UnsupportedType { Name = "type1" };
+        var unsupportedType2 = new UnsupportedType { Name = "type2" };
+        unsupportedType1.Type = unsupportedType2;
+        unsupportedType2.Type = unsupportedType1;
+
+        var buffer = new RentArrayBufferWriter();
+        using var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true });
+
+        var exception = Assert.Throws<FailedToSerializeApplicationMessageException>(() => serializer.SerializeToBuffer(writer, unsupportedType1));
+
+        Assert.Equal("Failed to serialize application message into a string", exception.Message);
         Assert.NotNull(exception.InnerException);
     }
 }

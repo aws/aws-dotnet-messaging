@@ -118,13 +118,13 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             await InvokeTypedPreSerializationCallbacks(envelope);
             var message = envelope.Message ?? throw new ArgumentNullException(nameof(envelope.Message), "The underlying application message cannot be null");
 
-            using var buffer = new RentArrayBufferWriter(cleanRentedBuffers: _messageConfiguration.SerializationOptions.CleanRentedBuffers);
+            using var buffer = new RentArrayBufferWriter(_messageConfiguration.SerializationOptions.RentedBufferOptions);
             using var writer = new Utf8JsonWriter(buffer, s_serializerWriterOptions);
 
             writer.WriteStartObject();
 
             writer.WriteString(s_idProp, envelope.Id);
-            writer.WriteString(s_sourceProp, envelope.Source?.OriginalString);
+            writer.WriteString(s_sourceProp, envelope.Source?.ToString());
             writer.WriteString(s_specVersionProp, envelope.Version);
             writer.WriteString(s_typeProp, envelope.MessageTypeIdentifier);
             writer.WriteString(s_timeProp, envelope.TimeStamp);

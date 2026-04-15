@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using AWS.Messaging.Configuration;
 using System.Buffers;
 using System.Diagnostics;
 
@@ -29,6 +30,11 @@ internal class RentArrayBufferWriter : IBufferWriter<byte>, IDisposable
         _rentedBuffer = ArrayPool<byte>.Shared.Rent(initialCapacity);
         _written = 0;
         _committed = 0;
+    }
+
+    public RentArrayBufferWriter(RentedBufferOptions options)
+        : this(options.InitialBufferSize, options.CleanRentedBuffers)
+    {
     }
 
     public (byte[], int) WrittenBuffer
