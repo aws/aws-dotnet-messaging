@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VSDiagnostics;
 
 namespace AWS.Messaging.Benchmarks;
+[MemoryDiagnoser]
 [CPUUsageDiagnoser]
 public class EnvelopeSerializerBenchmarks
 {
@@ -21,6 +23,8 @@ public class EnvelopeSerializerBenchmarks
     private IEnvelopeSerializer _envelopeSerializerWithContext = null!;
     private Message _sqsMessage = null!;
     private Message _sqsMessageWithContext = null!;
+    private Message _snsMessage = null!;
+    private Message _eventBridgeMessage = null!;
     [GlobalSetup]
     public void Setup()
     {
@@ -39,6 +43,32 @@ public class EnvelopeSerializerBenchmarks
             MessageId = "msg-2",
             ReceiptHandle = "rh-2"
         };
+
+        var snsWrapped = JsonSerializer.Serialize(new
+        {
+            Type = "Notification",
+            MessageId = "sns-msg-1",
+            TopicArn = "arn:aws:sns:us-east-1:123456789012:BenchTopic",
+            Subject = "BenchSubject",
+            Timestamp = DateTimeOffset.UtcNow,
+            UnsubscribeURL = "https://example.com/unsub",
+            Message = envelopeJson
+        });
+        _snsMessage = new Message { Body = snsWrapped, MessageId = "msg-3", ReceiptHandle = "rh-3" };
+
+        var ebWrapped = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["version"] = "0",
+            ["id"] = "eb-evt-1",
+            ["source"] = "bench.source",
+            ["detail-type"] = "BenchDetail",
+            ["time"] = DateTimeOffset.UtcNow,
+            ["account"] = "123456789012",
+            ["region"] = "us-east-1",
+            ["resources"] = new[] { "arn:aws:resource:1" },
+            ["detail"] = JsonSerializer.Deserialize<JsonElement>(envelopeJson)
+        });
+        _eventBridgeMessage = new Message { Body = ebWrapped, MessageId = "msg-4", ReceiptHandle = "rh-4" };
     }
 
     private static IEnvelopeSerializer BuildEnvelopeSerializer(JsonSerializerContext? jsonContext)
@@ -75,6 +105,18 @@ public class EnvelopeSerializerBenchmarks
     public ConvertToEnvelopeResult Deserialize_Envelope_WithJsonContext()
     {
         return _envelopeSerializerWithContext.ConvertToEnvelopeAsync(_sqsMessageWithContext).GetAwaiter().GetResult();
+    }
+
+    [Benchmark]
+    public ConvertToEnvelopeResult Deserialize_SNS_Wrapped()
+    {
+        return _envelopeSerializer.ConvertToEnvelopeAsync(_snsMessage).GetAwaiter().GetResult();
+    }
+
+    [Benchmark]
+    public ConvertToEnvelopeResult Deserialize_EventBridge_Wrapped()
+    {
+        return _envelopeSerializer.ConvertToEnvelopeAsync(_eventBridgeMessage).GetAwaiter().GetResult();
     }
 }
 

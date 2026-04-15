@@ -1,12 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Buffers;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
-using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,14 +42,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
     private readonly IMessageSerializerUtf8JsonReader? _messageSerializerUtf8JsonReader;
 
-    // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
-    // can be in any order since they check for different, mutually exclusive properties
-    private static readonly IMessageParser[] _parsers = new IMessageParser[]
-    {
-        new SNSMessageParser(), // Checks for SNS-specific properties (Type, TopicArn)
-        new EventBridgeMessageParser(), // Checks for EventBridge properties (detail-type, detail)
-        new SQSMessageParser() // Fallback parser - must be last
-    };
+    private readonly IMessageTypeClassifier _classifier;
+    private readonly ISQSWrapperReader _sqsReader;
 
     public EnvelopeSerializer(
         ILogger<EnvelopeSerializer> logger,
@@ -57,7 +52,9 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         IDateTimeHandler dateTimeHandler,
         IMessageIdGenerator messageIdGenerator,
         IMessageSourceHandler messageSourceHandler,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IMessageTypeClassifier classifier,
+        ISQSWrapperReader sqsReader)
     {
         _logger = logger;
         _messageConfiguration = messageConfiguration;
@@ -69,6 +66,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
         _messageSerializerUtf8JsonReader = messageSerializer as IMessageSerializerUtf8JsonReader;
         _serviceProvider = serviceProvider;
+        _classifier = classifier;
+        _sqsReader = sqsReader;
     }
 
     /// <inheritdoc/>
@@ -272,184 +271,195 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
     {
-        using var document = JsonDocument.Parse(envelopeString);
-        var root = document.RootElement;
-
-        // Get the message type and lookup mapping first
-        var messageType = root.GetProperty("type").GetString() ?? throw new InvalidDataException("Message type identifier not found in envelope");
-        var subscriberMapping = GetAndValidateSubscriberMapping(messageType);
-
-        var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
+        var byteCount = Encoding.UTF8.GetByteCount(envelopeString);
+        byte[]? rented = null;
+        Span<byte> utf8Envelope = byteCount <= 2048
+            ? stackalloc byte[byteCount]
+            : (rented = ArrayPool<byte>.Shared.Rent(byteCount)).AsSpan(0, byteCount);
 
         try
         {
-            // Set envelope properties directly without delegate-based helpers
-            // to avoid Func<JsonElement, T> allocations on every deserialization call.
-            envelope.Id = GetRequiredString(root, "id");
-            envelope.Source = new Uri(GetRequiredString(root, "source"), UriKind.RelativeOrAbsolute);
-            envelope.Version = GetRequiredString(root, "specversion");
-            envelope.MessageTypeIdentifier = messageType; // Already extracted above
-            envelope.TimeStamp = GetRequiredDateTimeOffset(root, "time");
-            envelope.DataContentType = root.TryGetProperty("datacontenttype", out var dctProp) ? dctProp.GetString() : null;
+            Encoding.UTF8.GetBytes(envelopeString, utf8Envelope);
 
-            // Handle metadata - copy any properties that aren't standard envelope properties
-            foreach (var property in root.EnumerateObject())
+            var reader = new Utf8JsonReader(utf8Envelope);
+
+            // CloudEvent properties
+            string? id = null, source = null, specVersion = null, type = null, dataContentType = null;
+            DateTimeOffset? time = null;
+
+            // Track data element byte range for deferred deserialization
+            int dataStart = -1, dataLength = 0;
+            bool dataIsString = false;
+            string? dataStringValue = null;
+
+            // Extension attributes (unknown properties)
+            Dictionary<string, JsonElement>? metadata = null;
+
+            while (reader.Read())
             {
-                if (!s_knownEnvelopeProperties.Contains(property.Name))
+                if (reader.CurrentDepth != 1 || reader.TokenType != JsonTokenType.PropertyName)
+                    continue;
+
+                if (reader.ValueTextEquals("type"u8))
                 {
-                    envelope.Metadata[property.Name] = property.Value.Clone();
+                    reader.Read();
+                    type = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("id"u8))
+                {
+                    reader.Read();
+                    id = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("source"u8))
+                {
+                    reader.Read();
+                    source = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("specversion"u8))
+                {
+                    reader.Read();
+                    specVersion = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("time"u8))
+                {
+                    reader.Read();
+                    time = reader.GetDateTimeOffset();
+                }
+                else if (reader.ValueTextEquals("datacontenttype"u8))
+                {
+                    reader.Read();
+                    dataContentType = reader.GetString();
+                }
+                else if (reader.ValueTextEquals("data"u8))
+                {
+                    reader.Read();
+                    if (reader.TokenType == JsonTokenType.String)
+                    {
+                        dataIsString = true;
+                        dataStringValue = reader.GetString();
+                    }
+                    else
+                    {
+                        dataStart = (int)reader.TokenStartIndex;
+                        reader.Skip();
+                        dataLength = (int)reader.BytesConsumed - dataStart;
+                    }
+                }
+                else
+                {
+                    // CloudEvents extension attribute — must preserve as JsonElement
+                    var propName = reader.GetString()!;
+                    reader.Read();
+                    using var subDoc = JsonDocument.ParseValue(ref reader);
+                    metadata ??= new Dictionary<string, JsonElement>();
+                    metadata[propName] = subDoc.RootElement.Clone();
                 }
             }
 
-            // Deserialize the message content using the optimized element-based path when available,
-            // avoiding the GetRawText() string allocation and re-parse.
-            object message;
-            if (_messageSerializerUtf8JsonReader is not null && IsJsonContentType(envelope.DataContentType))
+            // Validation
+            if (type is null) throw new InvalidDataException("Message type identifier not found in envelope");
+            if (id is null) throw new InvalidDataException("Required property 'id' is missing");
+            if (source is null) throw new InvalidDataException("Required property 'source' is missing");
+            if (specVersion is null) throw new InvalidDataException("Required property 'specversion' is missing");
+            if (!time.HasValue) throw new InvalidDataException("Required property 'time' is missing");
+
+            var subscriberMapping = GetAndValidateSubscriberMapping(type);
+            var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
+
+            envelope.Id = id;
+            envelope.Source = new Uri(source, UriKind.RelativeOrAbsolute);
+            envelope.Version = specVersion;
+            envelope.MessageTypeIdentifier = type;
+            envelope.TimeStamp = time.Value;
+            envelope.DataContentType = dataContentType;
+
+            if (metadata is not null)
             {
-                if (!root.TryGetProperty("data", out var dataElement))
-                    throw new InvalidDataException("Required property 'data' is missing");
-                message = _messageSerializerUtf8JsonReader.DeserializeFromElement(dataElement, subscriberMapping.MessageType);
+                foreach (var kvp in metadata)
+                    envelope.Metadata[kvp.Key] = kvp.Value;
+            }
+
+            // Deserialize the payload
+            object message;
+            bool isJsonContent = IsJsonContentType(dataContentType);
+
+            if (dataIsString)
+            {
+                // "data" was a JSON string value
+                message = _messageSerializer.Deserialize(dataStringValue!, subscriberMapping.MessageType);
+            }
+            else if (dataStart >= 0)
+            {
+                // "data" was an object/array — deserialize from the byte slice
+                var dataSlice = utf8Envelope.Slice(dataStart, dataLength);
+
+                if (_messageSerializerUtf8JsonReader is not null && isJsonContent)
+                {
+                    // Parse the data slice into a JsonElement for the element-based path
+                    using var dataDoc = JsonDocument.Parse(dataSlice.ToArray());
+                    message = _messageSerializerUtf8JsonReader.DeserializeFromElement(dataDoc.RootElement, subscriberMapping.MessageType);
+                }
+                else
+                {
+                    var dataString = Encoding.UTF8.GetString(dataSlice);
+                    message = _messageSerializer.Deserialize(dataString, subscriberMapping.MessageType);
+                }
             }
             else
             {
-                if (!root.TryGetProperty("data", out var dataElement))
-                    throw new InvalidDataException("Required property 'data' is missing");
-                var dataContent = IsJsonContentType(envelope.DataContentType)
-                    ? dataElement.GetRawText()
-                    : dataElement.GetString()!;
-                message = _messageSerializer.Deserialize(dataContent, subscriberMapping.MessageType);
+                throw new InvalidDataException("Required property 'data' is missing");
             }
-            envelope.SetMessage(message);
 
+            envelope.SetMessage(message);
             return (envelope, subscriberMapping);
+        }
+        catch (InvalidDataException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to deserialize or validate MessageEnvelope");
             throw new InvalidDataException("MessageEnvelope instance is not valid", ex);
         }
-    }
-
-    /// <summary>
-    /// Extracts a required string property from a JsonElement without delegate allocation.
-    /// </summary>
-    private static string GetRequiredString(JsonElement root, string propertyName)
-    {
-        if (root.TryGetProperty(propertyName, out var property))
+        finally
         {
-            return property.GetString() ?? throw new InvalidDataException($"Required property '{propertyName}' is null");
+            if (rented != null)
+                ArrayPool<byte>.Shared.Return(rented);
         }
-        throw new InvalidDataException($"Required property '{propertyName}' is missing");
-    }
-
-    /// <summary>
-    /// Extracts a required DateTimeOffset property from a JsonElement without delegate allocation.
-    /// </summary>
-    private static DateTimeOffset GetRequiredDateTimeOffset(JsonElement root, string propertyName)
-    {
-        if (root.TryGetProperty(propertyName, out var property))
-        {
-            return property.GetDateTimeOffset();
-        }
-        throw new InvalidDataException($"Required property '{propertyName}' is missing");
     }
 
     private async Task<(string MessageBody, MessageMetadata Metadata)> ParseOuterWrapper(Message sqsMessage)
     {
         sqsMessage.Body = await InvokePreDeserializationCallback(sqsMessage.Body);
 
-        // Example 1: SNS-wrapped message in SQS
-        /*
-        sqsMessage.Body = {
-            "Type": "Notification",
-            "MessageId": "abc-123",
-            "TopicArn": "arn:aws:sns:us-east-1:123456789012:MyTopic",
-            "Message": {
-                "id": "order-123",
-                "source": "com.myapp.orders",
-                "type": "OrderCreated",
-                "time": "2024-03-21T10:00:00Z",
-                "data": {
-                    "orderId": "12345",
-                    "amount": 99.99
-                }
-            }
-        }
-        */
-
-        // Example 2: Raw SQS message
-        /*
-        sqsMessage.Body = {
-            "id": "order-123",
-            "source": "com.myapp.orders",
-            "type": "OrderCreated",
-            "time": "2024-03-21T10:00:00Z",
-            "data": {
-                "orderId": "12345",
-                "amount": 99.99
-            }
-        }
-        */
-
-        var document = JsonDocument.Parse(sqsMessage.Body);
+        // Convert to UTF-8 for the Utf8JsonReader-based classifier
+        var bodyLength = Encoding.UTF8.GetByteCount(sqsMessage.Body);
+        byte[]? rented = null;
+        Span<byte> utf8Body = bodyLength <= 2048
+            ? stackalloc byte[bodyLength]
+            : (rented = ArrayPool<byte>.Shared.Rent(bodyLength)).AsSpan(0, bodyLength);
 
         try
         {
-            string currentMessageBody = sqsMessage.Body;
-            var combinedMetadata = new MessageMetadata();
+            Encoding.UTF8.GetBytes(sqsMessage.Body, utf8Body);
 
-            // Try each parser in order (avoid LINQ .Where() to prevent delegate allocation)
-            foreach (var parser in _parsers)
+            var classification = _classifier.Classify(utf8Body);
+
+            if (classification.WrapperType == WrapperType.Sqs)
             {
-                if (!parser.CanParse(document.RootElement))
-                    continue;
-
-                var (messageBody, metadata) = parser.Parse(document.RootElement, sqsMessage);
-
-                // Update the message body if this parser extracted a different inner message.
-                // Skip the re-parse when the body hasn't changed (e.g. SQS fallback parser
-                // returns GetRawText() of the same document that's already parsed).
-                if (!string.IsNullOrEmpty(messageBody) &&
-                    !string.Equals(messageBody, currentMessageBody, StringComparison.Ordinal))
-                {
-                    currentMessageBody = messageBody;
-                    document.Dispose();
-                    document = JsonDocument.Parse(messageBody);
-                }
-
-                // Combine metadata
-                if (metadata.SQSMetadata != null) combinedMetadata.SQSMetadata = metadata.SQSMetadata;
-                if (metadata.SNSMetadata != null) combinedMetadata.SNSMetadata = metadata.SNSMetadata;
-                if (metadata.EventBridgeMetadata != null) combinedMetadata.EventBridgeMetadata = metadata.EventBridgeMetadata;
+                // Fast path: body IS the envelope, no JSON parsing needed
+                return _sqsReader.Extract(sqsMessage);
             }
 
-            // Example 1 final return:
-            // MessageBody = {
-            //     "id": "order-123",
-            //     "source": "com.myapp.orders",
-            //     "type": "OrderCreated",
-            //     "time": "2024-03-21T10:00:00Z",
-            //     "data": { ... }
-            // }
-            // Metadata = {
-            //     SNSMetadata: { TopicArn: "arn:aws...", MessageId: "abc-123" }
-            // }
-
-            // Example 2 final return:
-            // MessageBody = {
-            //     "id": "order-123",
-            //     "source": "com.myapp.orders",
-            //     "type": "OrderCreated",
-            //     "time": "2024-03-21T10:00:00Z",
-            //     "data": { ... }
-            // }
-            // Metadata = { } // Just basic SQS metadata
-
-            return (currentMessageBody, combinedMetadata);
+            // SNS or EventBridge: delegate to the matched reader for metadata + body extraction
+            var reader = _classifier.GetReader(classification.WrapperType);
+            return reader.Extract(utf8Body, sqsMessage);
         }
         finally
         {
-            document.Dispose();
+            if (rented != null)
+                ArrayPool<byte>.Shared.Return(rented);
         }
     }
 

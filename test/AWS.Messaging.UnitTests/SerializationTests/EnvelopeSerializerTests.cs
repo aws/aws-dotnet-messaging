@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using AWS.Messaging.UnitTests.MessageHandlers;
 using AWS.Messaging.UnitTests.Models;
@@ -438,7 +439,9 @@ public class EnvelopeSerializerTests
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
+        var classifier = new Mock<IMessageTypeClassifier>();
+        var sqsWrapperReader = new Mock<ISQSWrapperReader>();
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider, classifier.Object, sqsWrapperReader.Object);
         var messageEnvelope = new MessageEnvelope<AddressInfo>
         {
             Id = "123",
@@ -507,6 +510,8 @@ public class EnvelopeSerializerTests
         var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
+        var classifier = new Mock<IMessageTypeClassifier>();
+        var sqsWrapperReader = new Mock<ISQSWrapperReader>();
         var envelopeSerializer = new EnvelopeSerializer(
             logger.Object,
             messageConfiguration,
@@ -514,7 +519,9 @@ public class EnvelopeSerializerTests
             dateTimeHandler.Object,
             messageIdGenerator.Object,
             messageSourceHandler.Object,
-            serviceProvider);
+            serviceProvider,
+            classifier.Object,
+            sqsWrapperReader.Object);
 
         var messageEnvelope = new MessageEnvelope<AddressInfo>
         {
@@ -576,6 +583,8 @@ public class EnvelopeSerializerTests
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
+        var classifier = new MessageTypeClassifier(new IWrapperReader[] { new SNSWrapperReader(), new EventBridgeWrapperReader() });
+        var sqsWrapperReader = new SQSWrapperReader();
         var envelopeSerializer = new EnvelopeSerializer(
             logger.Object,
             messageConfiguration,
@@ -583,9 +592,11 @@ public class EnvelopeSerializerTests
             dateTimeHandler.Object,
             messageIdGenerator.Object,
             messageSourceHandler.Object,
-            serviceProvider);
+            serviceProvider,
+            classifier,
+            sqsWrapperReader);
 
-        // Create an SQS message with invalid JSON that will cause JsonDocument.Parse to fail
+        // Create an SQS message with invalid JSON that will cause Utf8JsonReader to fail
         var sqsMessage = new Message
         {
             Body = "invalid json {",
@@ -759,7 +770,7 @@ public class EnvelopeSerializerTests
         var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider, serviceProvider.GetRequiredService<IMessageTypeClassifier>(), serviceProvider.GetRequiredService<ISQSWrapperReader>());
         var plainTextContent = "Hello, this is plain text content";
         var messageEnvelope = new MessageEnvelope<string>
         {

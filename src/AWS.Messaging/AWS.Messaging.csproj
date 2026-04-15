@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>13</LangVersion>
     <IsPackable>true</IsPackable>
     <Product>AWS Message Processing Framework</Product>
     <Authors>Amazon Web Services</Authors>
