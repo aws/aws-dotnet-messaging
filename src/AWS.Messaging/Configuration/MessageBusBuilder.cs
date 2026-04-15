@@ -376,8 +376,11 @@ public class MessageBusBuilder : IMessageBusBuilder
 
         _serviceCollection.TryAddSingleton(_messageConfiguration.PollingControlToken);
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
+        
+        _serviceCollection.AddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
         _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
-        _serviceCollection.TryAddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
+
+
         _serviceCollection.TryAddSingleton<IDateTimeHandler, DateTimeHandler>();
         _serviceCollection.TryAddSingleton<IMessageIdGenerator, MessageIdGenerator>();
         _serviceCollection.TryAddSingleton<IAWSClientProvider, AWSClientProvider>();

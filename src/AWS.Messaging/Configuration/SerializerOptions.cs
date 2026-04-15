@@ -23,6 +23,14 @@ public class SerializationOptions
     };
 
     /// <summary>
+    /// Configuration options for rented buffer management used during message serialization.
+    /// </summary>
+    /// <remarks>
+    /// Custom implementations of IMessageSerializer relying on rented buffers are required to follow these options.
+    /// </remarks>
+    public RentedBufferOptions RentedBufferOptions { get; set; } = new();
+
+    /// <summary>
     /// Default constructor
     /// </summary>
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050",

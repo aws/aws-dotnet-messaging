@@ -666,6 +666,21 @@ public class MessageBusBuilderTests
             }));
     }
 
+    [Fact]
+    public void MessageBus_RegistersStandardImplementations()
+    {
+        _serviceCollection.AddAWSMessageBus(builder => { });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageSerializer = serviceProvider.GetRequiredService<IMessageSerializer>();
+
+        Assert.IsType<EnvelopeSerializer>(envelopeSerializer);
+        Assert.IsType<MessageSerializer>(messageSerializer);
+    }
+
+
     // These services must be present irrespective of whether publishers or subscribers are configured.
     private void CheckRequiredServices(ServiceProvider serviceProvider)
     {
