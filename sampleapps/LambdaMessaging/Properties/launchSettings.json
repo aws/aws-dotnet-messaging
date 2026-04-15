@@ -3,8 +3,8 @@
     "Aspire_LambdaMessaging": {
       "commandName": "Executable",
       "executablePath": "dotnet",
-      "commandLineArgs": "exec --depsfile ./LambdaMessaging.deps.json --runtimeconfig ./LambdaMessaging.runtimeconfig.json %USERPROFILE%\\.dotnet\\tools\\.store\\amazon.lambda.testtool\\0.9.1\\amazon.lambda.testtool\\0.9.1\\content\\Amazon.Lambda.RuntimeSupport\\net8.0\\Amazon.Lambda.RuntimeSupport.dll LambdaMessaging::LambdaMessaging.Function_FunctionHandler_Generated::FunctionHandler",
-      "workingDirectory": ".\\bin\\$(Configuration)\\net8.0"
+      "commandLineArgs": "exec --depsfile ./LambdaMessaging.deps.json --runtimeconfig ./LambdaMessaging.runtimeconfig.json %USERPROFILE%\\.dotnet\\tools\\.store\\amazon.lambda.testtool\\0.13.0\\amazon.lambda.testtool\\0.13.0\\content\\Amazon.Lambda.RuntimeSupport\\net8.0\\Amazon.Lambda.RuntimeSupport.TestTool.dll LambdaMessaging::LambdaMessaging.Function_FunctionHandler_Generated::FunctionHandler",
+      "workingDirectory": "bin\\Debug\\net8.0\\"
     }
   }
 }

@@ -39,6 +39,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     private readonly ILogger<EnvelopeSerializer> _logger;
 
     private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
+    private readonly IMessageSerializerUtf8JsonReader? _messageSerializerUtf8JsonReader;
 
     // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
     // can be in any order since they check for different, mutually exclusive properties
@@ -66,6 +67,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _messageSourceHandler = messageSourceHandler;
 
         _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
+        _messageSerializerUtf8JsonReader = messageSerializer as IMessageSerializerUtf8JsonReader;
         _serviceProvider = serviceProvider;
     }
 
@@ -281,13 +283,14 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
         try
         {
-            // Set envelope properties
-            envelope.Id = JsonPropertyHelper.GetRequiredProperty(root, "id", element => element.GetString()!);
-            envelope.Source = JsonPropertyHelper.GetRequiredProperty(root, "source", element => new Uri(element.GetString()!, UriKind.RelativeOrAbsolute));
-            envelope.Version = JsonPropertyHelper.GetRequiredProperty(root, "specversion", element => element.GetString()!);
-            envelope.MessageTypeIdentifier = JsonPropertyHelper.GetRequiredProperty(root, "type", element => element.GetString()!);
-            envelope.TimeStamp = JsonPropertyHelper.GetRequiredProperty(root, "time", element => element.GetDateTimeOffset());
-            envelope.DataContentType = JsonPropertyHelper.GetStringProperty(root, "datacontenttype");
+            // Set envelope properties directly without delegate-based helpers
+            // to avoid Func<JsonElement, T> allocations on every deserialization call.
+            envelope.Id = GetRequiredString(root, "id");
+            envelope.Source = new Uri(GetRequiredString(root, "source"), UriKind.RelativeOrAbsolute);
+            envelope.Version = GetRequiredString(root, "specversion");
+            envelope.MessageTypeIdentifier = messageType; // Already extracted above
+            envelope.TimeStamp = GetRequiredDateTimeOffset(root, "time");
+            envelope.DataContentType = root.TryGetProperty("datacontenttype", out var dctProp) ? dctProp.GetString() : null;
 
             // Handle metadata - copy any properties that aren't standard envelope properties
             foreach (var property in root.EnumerateObject())
@@ -298,12 +301,24 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 }
             }
 
-            // Deserialize the message content using the custom serializer
-            var dataContent = JsonPropertyHelper.GetRequiredProperty(root, "data", element =>
-                IsJsonContentType(envelope.DataContentType)
-                    ? element.GetRawText()
-                    : element.GetString()!);
-            var message = _messageSerializer.Deserialize(dataContent, subscriberMapping.MessageType);
+            // Deserialize the message content using the optimized element-based path when available,
+            // avoiding the GetRawText() string allocation and re-parse.
+            object message;
+            if (_messageSerializerUtf8JsonReader is not null && IsJsonContentType(envelope.DataContentType))
+            {
+                if (!root.TryGetProperty("data", out var dataElement))
+                    throw new InvalidDataException("Required property 'data' is missing");
+                message = _messageSerializerUtf8JsonReader.DeserializeFromElement(dataElement, subscriberMapping.MessageType);
+            }
+            else
+            {
+                if (!root.TryGetProperty("data", out var dataElement))
+                    throw new InvalidDataException("Required property 'data' is missing");
+                var dataContent = IsJsonContentType(envelope.DataContentType)
+                    ? dataElement.GetRawText()
+                    : dataElement.GetString()!;
+                message = _messageSerializer.Deserialize(dataContent, subscriberMapping.MessageType);
+            }
             envelope.SetMessage(message);
 
             return (envelope, subscriberMapping);
@@ -313,6 +328,30 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             _logger.LogError(ex, "Failed to deserialize or validate MessageEnvelope");
             throw new InvalidDataException("MessageEnvelope instance is not valid", ex);
         }
+    }
+
+    /// <summary>
+    /// Extracts a required string property from a JsonElement without delegate allocation.
+    /// </summary>
+    private static string GetRequiredString(JsonElement root, string propertyName)
+    {
+        if (root.TryGetProperty(propertyName, out var property))
+        {
+            return property.GetString() ?? throw new InvalidDataException($"Required property '{propertyName}' is null");
+        }
+        throw new InvalidDataException($"Required property '{propertyName}' is missing");
+    }
+
+    /// <summary>
+    /// Extracts a required DateTimeOffset property from a JsonElement without delegate allocation.
+    /// </summary>
+    private static DateTimeOffset GetRequiredDateTimeOffset(JsonElement root, string propertyName)
+    {
+        if (root.TryGetProperty(propertyName, out var property))
+        {
+            return property.GetDateTimeOffset();
+        }
+        throw new InvalidDataException($"Required property '{propertyName}' is missing");
     }
 
     private async Task<(string MessageBody, MessageMetadata Metadata)> ParseOuterWrapper(Message sqsMessage)
@@ -359,32 +398,20 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             string currentMessageBody = sqsMessage.Body;
             var combinedMetadata = new MessageMetadata();
 
-            // Try each parser in order
-            foreach (var parser in _parsers.Where(p => p.CanParse(document.RootElement)))
+            // Try each parser in order (avoid LINQ .Where() to prevent delegate allocation)
+            foreach (var parser in _parsers)
             {
-                // Example 1 (SNS message) flow:
-                // 1. SNSMessageParser.CanParse = true (finds "Type": "Notification")
-                // 2. parser.Parse extracts inner message and SNS metadata
-                // 3. messageBody = contents of "Message" field
-                // 4. metadata contains SNS information (TopicArn, MessageId, etc.)
+                if (!parser.CanParse(document.RootElement))
+                    continue;
 
-                // Example 2 (Raw SQS) flow:
-                // 1. SNSMessageParser.CanParse = false (no SNS properties)
-                // 2. EventBridgeMessageParser.CanParse = false (no EventBridge properties)
-                // 3. SQSMessageParser.CanParse = true (fallback)
-                // 4. messageBody = original message
-                // 5. metadata contains just SQS information
                 var (messageBody, metadata) = parser.Parse(document.RootElement, sqsMessage);
 
-                // Update the message body if this parser extracted an inner message
-                if (!string.IsNullOrEmpty(messageBody))
+                // Update the message body if this parser extracted a different inner message.
+                // Skip the re-parse when the body hasn't changed (e.g. SQS fallback parser
+                // returns GetRawText() of the same document that's already parsed).
+                if (!string.IsNullOrEmpty(messageBody) &&
+                    !string.Equals(messageBody, currentMessageBody, StringComparison.Ordinal))
                 {
-                    // For Example 1:
-                    // - Updates currentMessageBody to inner message
-                    // - Creates new JsonElement for next parser to check
-
-                    // For Example 2:
-                    // - This block runs but messageBody is same as original
                     currentMessageBody = messageBody;
                     document.Dispose();
                     document = JsonDocument.Parse(messageBody);
