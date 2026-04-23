@@ -2,7 +2,7 @@
   "Projects": [
     {
       "Name": "AWS.Messaging",
-      "Type": "Patch",
+      "Type": "Minor",
       "ChangelogMessages": [
         "Add builder overload to modify underlying service collection on build"
       ]
