@@ -11,6 +11,7 @@ using AWS.Messaging.Services;
 using Microsoft.Extensions.Logging;
 using AWS.Messaging.Serialization.Parsers;
 using System.Collections.Frozen;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AWS.Messaging.Serialization;
@@ -425,10 +426,75 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private async ValueTask InvokeTypedPreSerializationCallbacks<T>(MessageEnvelope<T> messageEnvelope)
     {
+        // 1. Exact type match (existing behavior)
         var typedCallbacks = _serviceProvider.GetServices<ISerializationCallback<T>>();
         foreach (var callback in typedCallbacks)
         {
             await callback.PreSerializationAsync(messageEnvelope);
+        }
+
+        // 2. Walk interfaces and base types of T so that callbacks registered against
+        //    an interface or base class (e.g. ISerializationCallback<IMessageWithSubject>)
+        //    are also invoked when a concrete implementing type is published.
+        var messageType = typeof(T);
+
+        // typeof(T) always preserves full type metadata at runtime, so the trimmer
+        // warning about DynamicallyAccessedMemberTypes.Interfaces is a false positive.
+#pragma warning disable IL2087
+        foreach (var candidateType in GetAssignableTypes(messageType))
+#pragma warning restore IL2087
+        {
+            var callbackServiceType = typeof(ISerializationCallback<>).MakeGenericType(candidateType);
+            var callbacks = _serviceProvider.GetServices(callbackServiceType);
+
+            foreach (var callback in callbacks)
+            {
+                if (callback is null)
+                    continue;
+
+                // Create a MessageEnvelope<candidateType> that shares the same Metadata
+                // dictionary reference so modifications made by the callback are visible
+                // on the original envelope.
+                var envelopeType = typeof(MessageEnvelope<>).MakeGenericType(candidateType);
+                var adaptedEnvelope = (MessageEnvelope)Activator.CreateInstance(envelopeType)!;
+                adaptedEnvelope.Id = messageEnvelope.Id;
+                adaptedEnvelope.Source = messageEnvelope.Source;
+                adaptedEnvelope.Version = messageEnvelope.Version;
+                adaptedEnvelope.MessageTypeIdentifier = messageEnvelope.MessageTypeIdentifier;
+                adaptedEnvelope.TimeStamp = messageEnvelope.TimeStamp;
+                adaptedEnvelope.DataContentType = messageEnvelope.DataContentType;
+                adaptedEnvelope.Metadata = messageEnvelope.Metadata; // shared reference
+                adaptedEnvelope.SQSMetadata = messageEnvelope.SQSMetadata;
+                adaptedEnvelope.SNSMetadata = messageEnvelope.SNSMetadata;
+                adaptedEnvelope.EventBridgeMetadata = messageEnvelope.EventBridgeMetadata;
+                adaptedEnvelope.SetMessage(messageEnvelope.Message!);
+
+                // Invoke PreSerializationAsync via reflection since the closed generic
+                // type is only known at runtime.
+                var method = callbackServiceType.GetMethod(nameof(ISerializationCallback<T>.PreSerializationAsync))!;
+                await (ValueTask)method.Invoke(callback, new object[] { adaptedEnvelope })!;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the interfaces and base types (excluding <see cref="object"/>) that
+    /// the given <paramref name="type"/> is assignable to. This is used to discover
+    /// serialization callbacks registered against a parent type or interface.
+    /// </summary>
+    private static IEnumerable<Type> GetAssignableTypes(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type)
+    {
+        foreach (var iface in type.GetInterfaces())
+        {
+            yield return iface;
+        }
+
+        var baseType = type.BaseType;
+        while (baseType is not null && baseType != typeof(object))
+        {
+            yield return baseType;
+            baseType = baseType.BaseType;
         }
     }
 

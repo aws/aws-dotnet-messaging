@@ -83,6 +83,22 @@ public class PlainTextHandler : IMessageHandler<string>
     }
 }
 
+public class OrderMessageHandler : IMessageHandler<Models.OrderMessage>
+{
+    public Task<MessageProcessStatus> HandleAsync(MessageEnvelope<Models.OrderMessage> messageEnvelope, CancellationToken token = default)
+    {
+        return Task.FromResult(MessageProcessStatus.Success());
+    }
+}
+
+public class ProductMessageHandler : IMessageHandler<Models.ProductMessage>
+{
+    public Task<MessageProcessStatus> HandleAsync(MessageEnvelope<Models.ProductMessage> messageEnvelope, CancellationToken token = default)
+    {
+        return Task.FromResult(MessageProcessStatus.Success());
+    }
+}
+
 
 /// <summary>
 /// Implements handling for mutiple message types

@@ -874,6 +874,132 @@ public class EnvelopeSerializerTests
     }
 
     [Fact]
+    public async Task TypedSerializationCallback_InterfaceCallback_InvokedForConcreteType()
+    {
+        // ARRANGE — Register a callback against IMessageWithSubject interface,
+        // then publish an OrderMessage (which implements IMessageWithSubject).
+        // The callback should be invoked even though it was registered for the interface.
+        // This is the exact scenario described in GitHub discussion #317.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<OrderMessage>("sqsQueueUrl", "orderMessage");
+            builder.AddSerializationCallback<InterfaceSubjectCallback, IMessageWithSubject>();
+        });
+
+        var mockDateTimeHandler = new Mock<IDateTimeHandler>();
+        mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
+        services.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
+
+        var serviceProvider = services.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<OrderMessage>
+        {
+            Id = "order-123",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "orderMessage",
+            TimeStamp = _testdate,
+            Message = new OrderMessage
+            {
+                OrderId = "ORD-42",
+                Amount = 99.99m
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT — The "subject" metadata should be set by the interface callback
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.True(jsonDoc.RootElement.TryGetProperty("subject", out var subjectElement));
+        Assert.Equal("ORD-42", subjectElement.GetString());
+    }
+
+    [Fact]
+    public async Task TypedSerializationCallback_BaseClassCallback_InvokedForDerivedType()
+    {
+        // ARRANGE — Register a callback against CategorizedMessage base class,
+        // then publish a ProductMessage (which extends CategorizedMessage).
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<ProductMessage>("sqsQueueUrl", "productMessage");
+            builder.AddSerializationCallback<BaseClassCategoryCallback, CategorizedMessage>();
+        });
+
+        var mockDateTimeHandler = new Mock<IDateTimeHandler>();
+        mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
+        services.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
+
+        var serviceProvider = services.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<ProductMessage>
+        {
+            Id = "prod-456",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "productMessage",
+            TimeStamp = _testdate,
+            Message = new ProductMessage
+            {
+                ProductName = "Widget",
+                Category = "Hardware"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT — The "category" metadata should be set by the base class callback
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.True(jsonDoc.RootElement.TryGetProperty("category", out var categoryElement));
+        Assert.Equal("Hardware", categoryElement.GetString());
+    }
+
+    [Fact]
+    public async Task TypedSerializationCallback_InterfaceCallback_NotInvokedForNonImplementingType()
+    {
+        // ARRANGE — Register a callback against IMessageWithSubject,
+        // but publish a ChatMessage which does NOT implement IMessageWithSubject.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<ChatMessage>("sqsQueueUrl", "chatMessage");
+            builder.AddSerializationCallback<InterfaceSubjectCallback, IMessageWithSubject>();
+        });
+
+        var mockDateTimeHandler = new Mock<IDateTimeHandler>();
+        mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
+        services.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
+
+        var serviceProvider = services.BuildServiceProvider();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageEnvelope = new MessageEnvelope<ChatMessage>
+        {
+            Id = "chat-789",
+            Source = new Uri("/aws/messaging", UriKind.Relative),
+            Version = "1.0",
+            MessageTypeIdentifier = "chatMessage",
+            TimeStamp = _testdate,
+            Message = new ChatMessage
+            {
+                MessageDescription = "Hello"
+            }
+        };
+
+        // ACT
+        var serializedMessage = await envelopeSerializer.SerializeAsync(messageEnvelope);
+
+        // ASSERT — The "subject" key should NOT be present
+        var jsonDoc = JsonDocument.Parse(serializedMessage);
+        Assert.False(jsonDoc.RootElement.TryGetProperty("subject", out _));
+    }
+
+    [Fact]
     public async Task ConvertToEnvelope_WithCustomJsonContentType()
     {
         // ARRANGE
@@ -988,7 +1114,7 @@ public class MockSerializationCallback : ISerializationCallback
 /// <summary>
 /// A type-specific serialization callback that implements <see cref="ISerializationCallback{T}"/>
 /// for <see cref="AddressInfo"/>. It extracts the ZipCode as a "subject" CloudEvents extension attribute.
-/// No casting is required — the callback receives direct typed access to the message.
+/// No casting is required — the callback receives direct typed access to the message payload.
 /// This demonstrates the use case from GitHub discussion #317.
 /// </summary>
 public class AddressInfoSubjectCallback : ISerializationCallback<AddressInfo>
@@ -997,6 +1123,35 @@ public class AddressInfoSubjectCallback : ISerializationCallback<AddressInfo>
     {
         // Zero casting — direct typed access to the message payload
         messageEnvelope.Metadata["subject"] = JsonSerializer.SerializeToElement(messageEnvelope.Message.ZipCode);
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A serialization callback registered against the <see cref="IMessageWithSubject"/> interface.
+/// This callback should be invoked for any concrete message type that implements the interface
+/// (e.g. <see cref="OrderMessage"/>), even though the DI registration is for the interface type.
+/// This is the exact scenario described in GitHub discussion #317.
+/// </summary>
+public class InterfaceSubjectCallback : ISerializationCallback<IMessageWithSubject>
+{
+    public ValueTask PreSerializationAsync(MessageEnvelope<IMessageWithSubject> messageEnvelope)
+    {
+        messageEnvelope.Metadata["subject"] = JsonSerializer.SerializeToElement(messageEnvelope.Message.GetSubject());
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A serialization callback registered against the <see cref="CategorizedMessage"/> base class.
+/// This callback should be invoked for any concrete message type that extends the base class
+/// (e.g. <see cref="ProductMessage"/>).
+/// </summary>
+public class BaseClassCategoryCallback : ISerializationCallback<CategorizedMessage>
+{
+    public ValueTask PreSerializationAsync(MessageEnvelope<CategorizedMessage> messageEnvelope)
+    {
+        messageEnvelope.Metadata["category"] = JsonSerializer.SerializeToElement(messageEnvelope.Message.GetCategory());
         return ValueTask.CompletedTask;
     }
 }

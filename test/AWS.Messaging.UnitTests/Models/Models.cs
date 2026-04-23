@@ -59,3 +59,49 @@ public class TempStorage<T>
 
     public ConcurrentQueue<MessageEnvelope<T>> FifoMessages { get; set; } = new ConcurrentQueue<MessageEnvelope<T>>();
 }
+
+/// <summary>
+/// An interface representing a message that carries a subject.
+/// Used to test polymorphic serialization callbacks registered
+/// against an interface rather than a concrete type.
+/// </summary>
+public interface IMessageWithSubject
+{
+    string GetSubject();
+}
+
+/// <summary>
+/// A concrete message type that implements <see cref="IMessageWithSubject"/>.
+/// When published as <c>OrderMessage</c>, a callback registered against
+/// <c>IMessageWithSubject</c> should still be invoked.
+/// </summary>
+public class OrderMessage : IMessageWithSubject
+{
+    public string OrderId { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+
+    public string GetSubject() => OrderId;
+}
+
+/// <summary>
+/// A base class for messages that carry a category.
+/// Used to test polymorphic serialization callbacks registered
+/// against a base class rather than a concrete type.
+/// </summary>
+public abstract class CategorizedMessage
+{
+    public abstract string GetCategory();
+}
+
+/// <summary>
+/// A concrete message type that extends <see cref="CategorizedMessage"/>.
+/// When published as <c>ProductMessage</c>, a callback registered against
+/// <c>CategorizedMessage</c> should still be invoked.
+/// </summary>
+public class ProductMessage : CategorizedMessage
+{
+    public string ProductName { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+
+    public override string GetCategory() => Category;
+}
