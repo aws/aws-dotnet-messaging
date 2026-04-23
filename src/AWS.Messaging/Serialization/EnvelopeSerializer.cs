@@ -424,6 +424,10 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         }
     }
 
+    [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2087",
+        Justification = "typeof(T) in a generic method always preserves the full type metadata " +
+        "including interfaces and base types. The trimmer cannot statically prove this, " +
+        "but it is guaranteed by the runtime.")]
     private async ValueTask InvokeTypedPreSerializationCallbacks<T>(MessageEnvelope<T> messageEnvelope)
     {
         // 1. Exact type match (existing behavior)
@@ -438,11 +442,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         //    are also invoked when a concrete implementing type is published.
         var messageType = typeof(T);
 
-        // typeof(T) always preserves full type metadata at runtime, so the trimmer
-        // warning about DynamicallyAccessedMemberTypes.Interfaces is a false positive.
-#pragma warning disable IL2087
         foreach (var candidateType in GetAssignableTypes(messageType))
-#pragma warning restore IL2087
         {
             var callbackServiceType = typeof(ISerializationCallback<>).MakeGenericType(candidateType);
             var callbacks = _serviceProvider.GetServices(callbackServiceType);
@@ -452,9 +452,17 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 if (callback is null)
                     continue;
 
-                // Create a MessageEnvelope<candidateType> that shares the same Metadata
-                // dictionary reference so modifications made by the callback are visible
-                // on the original envelope.
+                // Create a MessageEnvelope<candidateType> that bridges the concrete message
+                // type to the interface/base class the callback expects.
+                //
+                // Reference-type properties (Metadata, SQSMetadata, SNSMetadata,
+                // EventBridgeMetadata, Message) are shared by reference — mutations to
+                // their contents propagate back to the original envelope automatically.
+                //
+                // Scalar/immutable properties (Id, Source, Version, MessageTypeIdentifier,
+                // TimeStamp, DataContentType) are copied into the adapted envelope before
+                // the callback, and copied back afterward so that any reassignments the
+                // callback makes are also reflected on the original envelope.
                 var envelopeType = typeof(MessageEnvelope<>).MakeGenericType(candidateType);
                 var adaptedEnvelope = (MessageEnvelope)Activator.CreateInstance(envelopeType)!;
                 adaptedEnvelope.Id = messageEnvelope.Id;
@@ -463,7 +471,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 adaptedEnvelope.MessageTypeIdentifier = messageEnvelope.MessageTypeIdentifier;
                 adaptedEnvelope.TimeStamp = messageEnvelope.TimeStamp;
                 adaptedEnvelope.DataContentType = messageEnvelope.DataContentType;
-                adaptedEnvelope.Metadata = messageEnvelope.Metadata; // shared reference
+                adaptedEnvelope.Metadata = messageEnvelope.Metadata;
                 adaptedEnvelope.SQSMetadata = messageEnvelope.SQSMetadata;
                 adaptedEnvelope.SNSMetadata = messageEnvelope.SNSMetadata;
                 adaptedEnvelope.EventBridgeMetadata = messageEnvelope.EventBridgeMetadata;
@@ -473,6 +481,14 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 // type is only known at runtime.
                 var method = callbackServiceType.GetMethod(nameof(ISerializationCallback<T>.PreSerializationAsync))!;
                 await (ValueTask)method.Invoke(callback, new object[] { adaptedEnvelope })!;
+
+                // Copy back scalar/immutable properties that the callback may have reassigned.
+                messageEnvelope.Id = adaptedEnvelope.Id;
+                messageEnvelope.Source = adaptedEnvelope.Source;
+                messageEnvelope.Version = adaptedEnvelope.Version;
+                messageEnvelope.MessageTypeIdentifier = adaptedEnvelope.MessageTypeIdentifier;
+                messageEnvelope.TimeStamp = adaptedEnvelope.TimeStamp;
+                messageEnvelope.DataContentType = adaptedEnvelope.DataContentType;
             }
         }
     }
