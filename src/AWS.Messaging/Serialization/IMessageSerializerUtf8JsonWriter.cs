@@ -7,9 +7,9 @@ namespace AWS.Messaging.Serialization;
 
 /// <summary>
 /// Supports serialization and deserialization of domain-specific application messages.
-/// This interface extends <see cref="IMessageSerializer"/> to provide a methods for allocation-free serialization/deserialization.
+/// This interface extends <see cref="IMessageSerializer"/> to provide methods for rented buffers based serialization/deserialization.
 /// </summary>
-public interface IMessageSerializerUtf8JsonWriter
+internal interface IMessageSerializerUtf8JsonWriter
 {
     /// <summary>
     /// Serializes the .NET message object into a UTF-8 JSON string using a Utf8JsonWriter.
