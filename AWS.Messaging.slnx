@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/sampleapps/">
+    <Project Path="sampleapps/AppHost/AppHost.csproj" />
+    <Project Path="sampleapps/LambdaMessaging/LambdaMessaging.csproj" />
+    <Project Path="sampleapps/PollyIntegration/PollyIntegration.csproj" />
+    <Project Path="sampleapps/PublisherAPI/PublisherAPI.csproj" />
+    <Project Path="sampleapps/SubscriberService/SubscriberService.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/AWS.Messaging.Lambda/AWS.Messaging.Lambda.csproj" />
+    <Project Path="src/AWS.Messaging.Telemetry.OpenTelemetry/AWS.Messaging.Telemetry.OpenTelemetry.csproj" />
+    <Project Path="src/AWS.Messaging/AWS.Messaging.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/AWS.Messaging.Benchmarks/AWS.Messaging.Benchmarks.csproj" />
+    <Project Path="test/AWS.Messaging.IntegrationTests/AWS.Messaging.IntegrationTests.csproj" />
+    <Project Path="test/AWS.Messaging.Tests.Common/AWS.Messaging.Tests.Common.csproj" />
+    <Project Path="test/AWS.Messaging.Tests.LambdaFunctions/AWS.Messaging.Tests.LambdaFunctions.csproj" />
+    <Project Path="test/AWS.Messaging.UnitTests/AWS.Messaging.UnitTests.csproj" />
+  </Folder>
+</Solution>
