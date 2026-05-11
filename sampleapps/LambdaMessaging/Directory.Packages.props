@@ -1,0 +1,15 @@
+<Project>
+  <!-- Central Package Management - LambdaMessaging Sample App -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- Lambda-Specific Packages -->
+    <PackageVersion Include="Amazon.Lambda.Annotations" Version="1.9.0" />
+    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
+    <PackageVersion Include="Amazon.Lambda.Logging.AspNetCore" Version="4.1.1" />
+
+    <!-- Microsoft Extensions -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+</Project>

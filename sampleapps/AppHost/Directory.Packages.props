@@ -1,0 +1,11 @@
+<Project>
+  <!-- Central Package Management - AppHost Sample App -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- Aspire Packages -->
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.1.0" />
+    <PackageVersion Include="Aspire.Hosting.AWS" Version="9.4.1" />
+  </ItemGroup>
+</Project>
