@@ -8,5 +8,43 @@
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Common package metadata -->
+    <Authors>Amazon Web Services</Authors>
+    <Company>Amazon Web Services</Company>
+    <PackageProjectUrl>https://github.com/awslabs/aws-dotnet-messaging</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
+
+    <!-- Documentation and build settings -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RollForward>Major</RollForward>
+    <WarningsAsErrors>CA1727</WarningsAsErrors>
+
+    <!-- Assembly signing -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>../../public.snk</AssemblyOriginatorKeyFile>
+
+    <!-- Source Link settings -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Trimming support -->
+    <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
+
+  <!-- Common package files -->
+  <ItemGroup>
+    <None Include="../../icon.png" Pack="true" PackagePath="" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../../NOTICE" Pack="true" PackagePath="" />
+    <None Include="../../THIRD_PARTY_LICENSES" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <!-- Common package references -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
 </Project>

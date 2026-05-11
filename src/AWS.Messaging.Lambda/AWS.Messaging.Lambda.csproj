@@ -1,44 +1,20 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
     <IsPackable>true</IsPackable>
-    <Authors>Amazon Web Services</Authors>
-    <Company>Amazon Web Services</Company>
     <Description>This package is a plugin for the AWS Message Processing Framework for .NET that allows a .NET Lambda function to handle messages that were published by the framework.</Description>
     <Product>AWS Message Processing Framework plugin for AWS Lambda</Product>
-    <PackageProjectUrl>https://github.com/awslabs/aws-dotnet-messaging</PackageProjectUrl>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageIcon>icon.png</PackageIcon>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <RollForward>Major</RollForward>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <WarningsAsErrors>CA1727</WarningsAsErrors>
-    <SignAssembly>true</SignAssembly>
-    <AssemblyOriginatorKeyFile>..\..\public.snk</AssemblyOriginatorKeyFile>
     <Version>1.0.3</Version>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.Core" />
     <PackageReference Include="Amazon.Lambda.SQSEvents" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AWS.Messaging\AWS.Messaging.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="..\..\icon.png" Pack="true" PackagePath="" />
-    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
-    <None Include="..\..\NOTICE" Pack="true" PackagePath="" />
-    <None Include="..\..\THIRD_PARTY_LICENSES" Pack="true" PackagePath="" />
   </ItemGroup>
 
   <ItemGroup>

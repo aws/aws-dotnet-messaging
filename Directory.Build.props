@@ -1,6 +1,7 @@
 <Project>
   <!-- Global settings for whole solution -->
   <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
   </PropertyGroup>
