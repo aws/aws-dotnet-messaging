@@ -3,7 +3,7 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <Description>This package is an instrumentation library which instruments the AWS Message Processing Framework for .NET to collect traces about messages that are sent and received.</Description>
-    <Product>AWS Message Processing Framework Instrumention for OpenTelemetry</Product>
+    <Product>AWS Message Processing Framework Instrumentation for OpenTelemetry</Product>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Version>1.0.0</Version>
   </PropertyGroup>
