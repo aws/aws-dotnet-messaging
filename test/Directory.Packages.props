@@ -32,6 +32,7 @@
     <PackageVersion Include="Amazon.Lambda.TestUtilities" Version="3.0.1" />
     <PackageVersion Include="Moq" Version="4.18.4" />
     <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="$(MicrosoftExtensionsVersion)" />
 
     <!-- Benchmark Packages -->
     <PackageVersion Include="Perfolizer" Version="0.3.5" />

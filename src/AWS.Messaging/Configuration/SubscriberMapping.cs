@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Diagnostics.CodeAnalysis;
+using AWS.Messaging.Services;
 
 namespace AWS.Messaging.Configuration;
 
@@ -18,6 +19,9 @@ public class SubscriberMapping
     public Type MessageType { get; }
 
     /// <inheritdoc/>
+    public HandlerInvokerDelegate HandlerInvoker { get; }
+
+    /// <inheritdoc/>
     public string MessageTypeIdentifier { get; }
 
     // The MessageEnvelopeFactory func is used to create func from the generic parameters
@@ -32,9 +36,10 @@ public class SubscriberMapping
     /// <param name="handlerType">The type that implements <see cref="IMessageHandler{T}"/></param>
     /// <param name="messageType">The type that will be message data will deserialized into</param>
     /// <param name="envelopeFactory">Func for creating <see cref="MessageEnvelope{messageType}"/></param>
+    /// <param name="handlerInvoker">Delegate to invoke handler of <see cref="MessageType"/>.</param>
     /// <param name="messageTypeIdentifier">Optional message type identifier. If not set the full name of the <see cref="MessageType"/> is used.</param>
 
-    internal SubscriberMapping([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, string? messageTypeIdentifier = null)
+    internal SubscriberMapping([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, HandlerInvokerDelegate handlerInvoker, string? messageTypeIdentifier = null)
     {
         HandlerType = handlerType;
         MessageType = messageType;
@@ -44,6 +49,7 @@ public class SubscriberMapping
             messageType.FullName ?? throw new InvalidMessageTypeException("Unable to retrieve the Full Name of the provided Message Type.");
 
         MessageEnvelopeFactory = envelopeFactory;
+        HandlerInvoker = handlerInvoker;
     }
 
     /// <summary>
@@ -61,6 +67,13 @@ public class SubscriberMapping
             return new MessageEnvelope<TMessage>();
         }
 
-        return new SubscriberMapping(typeof(THandler), typeof(TMessage), envelopeFactory, messageTypeIdentifier);
+        static Task<MessageProcessStatus> handlerInvoker(HandlerInvoker invoker, MessageEnvelope messageEnvelope, SubscriberMapping subscriberMapping, CancellationToken token = default)
+        {
+            return invoker.InvokeAsync((MessageEnvelope<TMessage>)messageEnvelope, subscriberMapping, token);
+        }
+
+        return new SubscriberMapping(typeof(THandler), typeof(TMessage), envelopeFactory, handlerInvoker, messageTypeIdentifier);
     }
 }
+
+public delegate Task<MessageProcessStatus> HandlerInvokerDelegate(HandlerInvoker invoker, MessageEnvelope messageEnvelope, SubscriberMapping subscriberMapping, CancellationToken token = default);
