@@ -1,4 +1,4 @@
-﻿# AWS Message Processing Framework Subscriber Service Sample
+# AWS Message Processing Framework Subscriber Service Sample
 
 This sample application demonstrates how to use the AWS Message Processing Framework for .NET to process messages from SQS queues with configurable polling and message handling.
 
@@ -7,6 +7,7 @@ This sample application demonstrates how to use the AWS Message Processing Frame
 This sample demonstrates:
 - Configuring and using SQS message pollers
 - Implementing typed message handlers
+- Adding subscriber middleware to the processing pipeline
 - Configuration-based setup using .NET Aspire
 - Configurable backoff policies for message processing
 - Proper message handling patterns
@@ -17,16 +18,22 @@ This sample demonstrates:
 - Follow the setup instructions in the AppHost README to ensure all AWS resources and .NET Aspire components are properly configured
 
 
-## Project Structure
+## Project Structure
 ```
 SubscriberService/
 ├── MessageHandlers/
 │   └── ChatMessageHandler.cs    # Message handler implementation
+├── Middleware/
+│   └── SampleMiddleware.cs      # Sample middleware implementation
 ├── Models/
 │   └── ChatMessage.cs          # Message type definition
 ├── Program.cs                  # Application entry point
 └── appsettings.json           # Application configuration
 ```
+
+## Middleware
+
+This sample includes `SampleMiddleware` to demonstrate the subscriber middleware feature. Middleware implements the `IHandlerMiddleware` interface and is registered using `builder.AddHandlerMiddleware<SampleMiddleware>()` in `Program.cs`. Middleware executes in registration order, wrapping around the message handler, and is useful for cross-cutting concerns such as logging, metrics, or message enrichment. See the main [README](../../README.md#subscriber-middleware) for more details.
 
 ## Testing
 
@@ -47,7 +54,7 @@ $messageBody = '{"type":"chatMessage","id":"123","source":"test","specversion":"
 aws sqs send-message --queue-url YOUR_QUEUE_URL --message-body $messageBody
 ```
 
-## Configuration Options
+## Configuration Options
 ```
 {
     "MaxNumberOfConcurrentMessages": 10,    // Maximum number of messages to process concurrently
@@ -57,7 +64,7 @@ aws sqs send-message --queue-url YOUR_QUEUE_URL --message-body $messageBody
     "VisibilityTimeoutExtensionThreshold": 5   // When to extend visibility timeout
 }
 ```
-### Backoff Policy Options
+### Backoff Policy Options
 ```
 {
     "BackoffPolicy": "CappedExponential",  // Available options: Linear, Exponential, CappedExponential
@@ -66,4 +73,3 @@ aws sqs send-message --queue-url YOUR_QUEUE_URL --message-body $messageBody
     }
 }
 ```
-

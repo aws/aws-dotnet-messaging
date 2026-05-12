@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Added subscriber middleware with optional error handler to override result or retry execution."
+      ]
+    }
+  ]
+}
