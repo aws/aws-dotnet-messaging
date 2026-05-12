@@ -155,13 +155,13 @@ public interface IMessageBusBuilder
     /// <summary>
     /// Add additional services to the <see cref="IMessageBusBuilder"/> by registering a callback that receives the current
     /// <see cref="IMessageConfiguration"/> and the target <see cref="IServiceCollection"/>. This method is used for
-    /// AWS.Messaging plugins to add services for messaging. The callback is invoked during <c>builder.Build()</c>, so
-    /// changes to <see cref="IMessageConfiguration"/> made in this action should not be assumed to affect registrations
-    /// that were performed earlier in the build process.
+    /// AWS.Messaging plugins to add services for messaging. The callback is invoked during <c>builder.Build()</c> after
+    /// all framework service registrations have completed. The <see cref="IMessageConfiguration"/> parameter should be
+    /// treated as read-only; any mutations to it will not be reflected in the services already registered by the framework.
     /// </summary>
     /// <param name="action">Configuration action to perform during <c>builder.Build()</c>. The first parameter is the current
-    /// <see cref="IMessageConfiguration"/>, and the second parameter is the <see cref="IServiceCollection"/> to which
-    /// additional services can be added.</param>
+    /// <see cref="IMessageConfiguration"/> (read-only — mutations will not affect prior registrations), and the second
+    /// parameter is the <see cref="IServiceCollection"/> to which additional services can be added.</param>
     /// <returns></returns>
     IMessageBusBuilder AddAdditionalService(Action<IMessageConfiguration, IServiceCollection> action);
 
