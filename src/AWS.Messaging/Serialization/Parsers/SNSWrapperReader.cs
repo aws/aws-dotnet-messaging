@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Internal;
+using AWS.Messaging.Serialization.Helpers;
 
 namespace AWS.Messaging.Serialization.Parsers;
 
@@ -39,9 +40,9 @@ internal sealed class SNSWrapperReader : IWrapperReader
 
     /// <inheritdoc/>
     public (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(
-        ReadOnlySpan<byte> utf8Body, Message originalMessage)
+        ReadOnlyMemory<byte> utf8Body, Message originalMessage, ArrayPoolManager poolManager)
     {
-        var reader = new Utf8JsonReader(utf8Body);
+        var reader = new Utf8JsonReader(utf8Body.Span);
         var snsMetadata = new SNSMetadata();
         ReadOnlyMemory<byte> innerBodyUtf8 = default;
 
@@ -59,7 +60,7 @@ internal sealed class SNSWrapperReader : IWrapperReader
                 // CopyString decodes JSON-escaped UTF-8 directly into a byte buffer,
                 // avoiding the intermediate string allocation from GetString().
                 int maxBytes = reader.ValueSpan.Length; // un-escaped is always <= escaped length
-                byte[] buffer = ArrayPool<byte>.Shared.Rent(maxBytes);
+                byte[] buffer = poolManager.Rent(maxBytes);
                 int written = reader.CopyString(buffer);
                 innerBodyUtf8 = buffer.AsMemory(0, written);
             }

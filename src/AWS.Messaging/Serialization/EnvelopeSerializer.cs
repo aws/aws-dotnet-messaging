@@ -225,24 +225,17 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     {
         try
         {
-            var (envelopeUtf8, metadata, rentedOuter) = await ParseOuterWrapper(sqsMessage);
+            using var poolManager = new ArrayPoolManager(initialRentCapacity: 2, clearRentedBuffers: true);
+            var (envelopeUtf8, metadata) = await ParseOuterWrapper(sqsMessage, poolManager);
 
-            try
-            {
-                var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
+            var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
 
-                envelope.SQSMetadata = metadata.SQSMetadata;
-                envelope.SNSMetadata = metadata.SNSMetadata;
-                envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
+            envelope.SQSMetadata = metadata.SQSMetadata;
+            envelope.SNSMetadata = metadata.SNSMetadata;
+            envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
 
-                await InvokePostDeserializationCallback(envelope);
-                return new ConvertToEnvelopeResult(envelope, subscriberMapping);
-            }
-            finally
-            {
-                if (rentedOuter != null)
-                    ArrayPool<byte>.Shared.Return(rentedOuter);
-            }
+            await InvokePostDeserializationCallback(envelope);
+            return new ConvertToEnvelopeResult(envelope, subscriberMapping);
         }
         catch (JsonException) when (!_messageConfiguration.LogMessageContent)
         {
@@ -258,23 +251,16 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private ConvertToEnvelopeResult ConvertToEnvelopeCore(Message sqsMessage)
     {
-        var (envelopeUtf8, metadata, rentedOuter) = ParseOuterWrapperCore(sqsMessage);
+        using var poolManager = new ArrayPoolManager(initialRentCapacity: 2, clearRentedBuffers: true);
+        var (envelopeUtf8, metadata) = ParseOuterWrapperCore(sqsMessage, poolManager);
 
-        try
-        {
-            var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
+        var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeUtf8.Span);
 
-            envelope.SQSMetadata = metadata.SQSMetadata;
-            envelope.SNSMetadata = metadata.SNSMetadata;
-            envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
+        envelope.SQSMetadata = metadata.SQSMetadata;
+        envelope.SNSMetadata = metadata.SNSMetadata;
+        envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
 
-            return new ConvertToEnvelopeResult(envelope, subscriberMapping);
-        }
-        finally
-        {
-            if (rentedOuter != null)
-                ArrayPool<byte>.Shared.Return(rentedOuter);
-        }
+        return new ConvertToEnvelopeResult(envelope, subscriberMapping);
     }
 
     private static bool IsJsonContentType(string? dataContentType)
@@ -292,7 +278,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         ReadOnlySpan<char> contentType = dataContentType.AsSpan().Trim();
 
         // Remove parameters (anything after ';')
-        int semicolonIndex = contentType.IndexOf(';');
+        var semicolonIndex = contentType.IndexOf(';');
         if (semicolonIndex >= 0)
             contentType = contentType.Slice(0, semicolonIndex).Trim();
 
@@ -301,7 +287,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             return true;
 
         // Find the '/' separator
-        int slashIndex = contentType.IndexOf('/');
+        var slashIndex = contentType.IndexOf('/');
         if (slashIndex < 0
             || slashIndex == contentType.Length - 1
             || slashIndex != contentType.LastIndexOf('/'))
@@ -337,7 +323,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
         // Track data element byte range for deferred deserialization
         int dataStart = -1, dataLength = 0;
-        bool dataIsString = false;
+        var dataIsString = false;
         string? dataStringValue = null;
 
         // Extension attributes (unknown properties)
@@ -417,7 +403,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         if (!time.HasValue) throw new InvalidDataException("Required property 'time' is missing");
 
         var subscriberMapping = GetAndValidateSubscriberMapping(type);
-        var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
+        var envelope = subscriberMapping.MessageEnvelopeFactory();
 
         envelope.Id = id;
         envelope.Source = new Uri(source, UriKind.RelativeOrAbsolute);
@@ -434,7 +420,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
         // Deserialize the payload
         object message;
-        bool isJsonContent = IsJsonContentType(dataContentType);
+        var isJsonContent = IsJsonContentType(dataContentType);
 
         if (dataIsString)
         {
@@ -466,60 +452,35 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         return (envelope, subscriberMapping);
     }
 
-    private ValueTask<(ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer)> ParseOuterWrapper(Message sqsMessage)
-    {
-        // When no serialization callbacks are registered (the common case),
-        // avoid the async state machine entirely — pure synchronous compute.
-        if (_messageConfiguration.SerializationCallbacks.Count == 0)
-        {
-            return new ValueTask<(ReadOnlyMemory<byte>, MessageMetadata, byte[]?)>(
-                ParseOuterWrapperCore(sqsMessage));
-        }
-
-        return ParseOuterWrapperAsync(sqsMessage);
-    }
-
-    private async ValueTask<(ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer)> ParseOuterWrapperAsync(Message sqsMessage)
+    private async ValueTask<(ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata)> ParseOuterWrapper(Message sqsMessage, ArrayPoolManager poolManager)
     {
         sqsMessage.Body = await InvokePreDeserializationCallback(sqsMessage.Body);
-        return ParseOuterWrapperCore(sqsMessage);
+        return ParseOuterWrapperCore(sqsMessage, poolManager);
     }
 
-    private (ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata, byte[]? RentedBuffer) ParseOuterWrapperCore(Message sqsMessage)
+    private (ReadOnlyMemory<byte> EnvelopeUtf8, MessageMetadata Metadata) ParseOuterWrapperCore(Message sqsMessage, ArrayPoolManager poolManager)
     {
         // Convert to UTF-8 once — this buffer is used by the classifier and wrapper readers,
         // and for the SQS path it IS the envelope bytes fed to DeserializeEnvelope.
         // Use GetMaxByteCount to avoid double-pass (GetByteCount + GetBytes)
-        byte[] rented = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(sqsMessage.Body.Length));
-        int actualBytes = Encoding.UTF8.GetBytes(sqsMessage.Body, rented);
+        var rented = poolManager.Rent(Encoding.UTF8.GetMaxByteCount(sqsMessage.Body.Length));
+        var actualBytes = Encoding.UTF8.GetBytes(sqsMessage.Body, rented);
         var utf8Body = rented.AsMemory(0, actualBytes);
 
         var classification = _classifier.Classify(utf8Body.Span);
 
         if (classification.WrapperType == WrapperType.Sqs)
         {
-            // Fast path: body IS the envelope — pass the rented buffer through directly
+            // Fast path: body IS the envelope — rented buffer will be returned by poolManager
             var (innerUtf8, metadata) = _sqsReader.Extract(utf8Body, sqsMessage);
-            return (innerUtf8, metadata, rented);
+            return (innerUtf8, metadata);
         }
 
         // SNS or EventBridge: delegate to the matched reader for metadata + body extraction
         var reader = _classifier.GetReader(classification.WrapperType);
-        var (wrapperUtf8, wrapperMetadata) = reader.Extract(utf8Body.Span, sqsMessage);
+        var (wrapperUtf8, wrapperMetadata) = reader.Extract(utf8Body, sqsMessage, poolManager);
 
-        // The wrapper reader rents its own buffer from ArrayPool for the inner body,
-        // so we can return the outer buffer now.
-        ArrayPool<byte>.Shared.Return(rented);
-
-        // Extract the pool-rented backing array so the caller can return it after deserialization.
-        // Both SNS (CopyString) and EventBridge (Rent+CopyTo) paths produce pool-rented arrays.
-        byte[]? innerRented = null;
-        if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(wrapperUtf8, out var segment) && segment.Array != null)
-        {
-            innerRented = segment.Array;
-        }
-
-        return (wrapperUtf8, wrapperMetadata, innerRented);
+        return (wrapperUtf8, wrapperMetadata);
     }
 
     private SubscriberMapping GetAndValidateSubscriberMapping(string messageTypeIdentifier)

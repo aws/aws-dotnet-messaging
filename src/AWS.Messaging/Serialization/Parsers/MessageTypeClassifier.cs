@@ -25,7 +25,7 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     public MessageTypeClassifier(IEnumerable<IWrapperReader> readers)
     {
         var readerList = new List<ReaderEntry>();
-        int bitPosition = 0;
+        var bitPosition = 0;
 
         foreach (var reader in readers)
         {
@@ -44,7 +44,7 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
             readerList.Add(new ReaderEntry(reader, keys, requiredMask));
         }
 
-        _entries = readerList.ToArray();
+        _entries = [.. readerList];
     }
 
     /// <summary>
@@ -83,8 +83,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
             }
 
             // Try to match against all registered discriminator keys
-            int globalBit = 0;
-            bool matched = false;
+            var globalBit = 0;
+            var matched = false;
             foreach (var entry in _entries)
             {
                 foreach (var key in entry.Keys)
@@ -141,7 +141,7 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
 
     private void SetBitsForKey(byte[] key, ref ulong bitmap)
     {
-        int globalBit = 0;
+        var globalBit = 0;
         foreach (var entry in _entries)
         {
             foreach (var entryKey in entry.Keys)

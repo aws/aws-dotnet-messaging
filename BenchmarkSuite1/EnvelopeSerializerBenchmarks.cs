@@ -103,6 +103,7 @@ public class EnvelopeSerializerBenchmarks
         });
         var mockDateTimeHandler = new DateTimeHandler();
         services.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler));
+        services.AddOptions<RentedBufferOptions>().Configure(options => options.CleanRentedBuffers = false);
         var provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IEnvelopeSerializer>();
     }

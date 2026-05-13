@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
+using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Serialization.Parsers;
 using Xunit;
 
@@ -30,15 +31,16 @@ public class EventBridgeWrapperReaderTests
             "resources": ["arn:aws:resource:1"],
             "detail": { "id": "1", "data": "hello" }
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         var innerJson = Encoding.UTF8.GetString(innerBody.Span);
         Assert.Contains("\"id\"", innerJson);
         Assert.Contains("\"data\"", innerJson);
 
-        ReturnRentedBuffer(innerBody);
+        // No buffer return needed - object/array detail returns a zero-copy slice of the input
 
         Assert.NotNull(metadata.EventBridgeMetadata);
         Assert.Equal("eb-evt-1", metadata.EventBridgeMetadata.EventId);
@@ -62,13 +64,13 @@ public class EventBridgeWrapperReaderTests
             "source": "test",
             "time": "2024-03-15T10:00:00Z"
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         var innerJson = Encoding.UTF8.GetString(innerBody.Span);
         Assert.Equal("{\"key\":\"value\"}", innerJson);
-        ReturnRentedBuffer(innerBody);
     }
 
     [Fact]
@@ -82,7 +84,8 @@ public class EventBridgeWrapperReaderTests
         }
         """);
 
-        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message()));
+        using var poolManager = new ArrayPoolManager();
+        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message(), poolManager));
     }
 
     [Fact]
@@ -97,7 +100,8 @@ public class EventBridgeWrapperReaderTests
         }
         """);
 
-        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message()));
+        using var poolManager = new ArrayPoolManager();
+        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message(), poolManager));
     }
 
     [Fact]
@@ -107,12 +111,13 @@ public class EventBridgeWrapperReaderTests
         {
             "detail": { "data": 1 }
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         Assert.False(innerBody.IsEmpty);
-        ReturnRentedBuffer(innerBody);
+        // No buffer return needed - object/array detail returns a zero-copy slice of the input
 
         Assert.NotNull(metadata.EventBridgeMetadata);
         Assert.Null(metadata.EventBridgeMetadata.EventId);
@@ -139,12 +144,13 @@ public class EventBridgeWrapperReaderTests
             "unknown_field": "ignored",
             "another_unknown": { "deep": true }
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, _) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, _) = _reader.Extract(json, new Message(), poolManager);
 
         Assert.False(innerBody.IsEmpty);
-        ReturnRentedBuffer(innerBody);
+        // No buffer return needed - object/array detail returns a zero-copy slice of the input
     }
 
     private static void ReturnRentedBuffer(ReadOnlyMemory<byte> memory)

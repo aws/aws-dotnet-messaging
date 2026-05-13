@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Serialization.Parsers;
 using Xunit;
 
@@ -29,9 +30,10 @@ public class SNSWrapperReaderTests
             "UnsubscribeURL": "https://sns.us-east-1.amazonaws.com/unsub",
             "Message": "{\"id\":\"1\",\"data\":\"hello\"}"
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         // Verify inner body was extracted correctly
         var innerJson = Encoding.UTF8.GetString(innerBody.Span);
@@ -60,7 +62,8 @@ public class SNSWrapperReaderTests
         }
         """);
 
-        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message()));
+        using var poolManager = new ArrayPoolManager();
+        Assert.Throws<InvalidOperationException>(() => _reader.Extract(json, new Message(), poolManager));
     }
 
     [Fact]
@@ -70,12 +73,12 @@ public class SNSWrapperReaderTests
         {
             "Message": "plain text body"
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         Assert.False(innerBody.IsEmpty);
-        ReturnRentedBuffer(innerBody);
 
         Assert.NotNull(metadata.SNSMetadata);
         Assert.Null(metadata.SNSMetadata.MessageId);
@@ -92,12 +95,12 @@ public class SNSWrapperReaderTests
             "Message": "body",
             "AnotherUnknown": [1, 2, 3]
         }
-        """u8;
+        """u8.ToArray();
 
-        var (innerBody, metadata) = _reader.Extract(json, new Message());
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
 
         Assert.False(innerBody.IsEmpty);
-        ReturnRentedBuffer(innerBody);
     }
 
     [Fact]

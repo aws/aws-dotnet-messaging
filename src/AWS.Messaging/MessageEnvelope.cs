@@ -60,7 +60,7 @@ public abstract class MessageEnvelope
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Metadata
     {
-        get => _metadata ??= new Dictionary<string, JsonElement>();
+        get => _metadata ??= [];
         set => _metadata = value;
     }
 

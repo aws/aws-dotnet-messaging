@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Text.Json;
 using Amazon.SQS.Model;
+using AWS.Messaging.Serialization.Helpers;
 
 namespace AWS.Messaging.Serialization.Parsers;
 
@@ -38,9 +39,9 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
 
     /// <inheritdoc/>
     public (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(
-        ReadOnlySpan<byte> utf8Body, Message originalMessage)
+        ReadOnlyMemory<byte> utf8Body, Message originalMessage, ArrayPoolManager poolManager)
     {
-        var reader = new Utf8JsonReader(utf8Body);
+        var reader = new Utf8JsonReader(utf8Body.Span);
         var ebMetadata = new EventBridgeMetadata();
         ReadOnlyMemory<byte> innerBodyUtf8 = default;
 
@@ -62,9 +63,9 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
                 if (reader.TokenType == JsonTokenType.String)
                 {
                     // detail is a JSON string — decode escaped UTF-8 into a rented buffer
-                    int maxBytes = reader.ValueSpan.Length;
-                    byte[] buffer = ArrayPool<byte>.Shared.Rent(maxBytes);
-                    int written = reader.CopyString(buffer);
+                    var maxBytes = reader.ValueSpan.Length;
+                    var buffer = poolManager.Rent(maxBytes);
+                    var written = reader.CopyString(buffer);
                     innerBodyUtf8 = buffer.AsMemory(0, written);
                 }
                 else if (reader.TokenType == JsonTokenType.Null)
@@ -73,13 +74,11 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
                 }
                 else
                 {
-                    // detail is an object/array — rent from pool and copy the slice
-                    int start = (int)reader.TokenStartIndex;
+                    // detail is an object/array — return a slice of the input buffer (zero-copy)
+                    var start = (int)reader.TokenStartIndex;
                     reader.Skip();
-                    int length = (int)reader.BytesConsumed - start;
-                    byte[] buffer = ArrayPool<byte>.Shared.Rent(length);
-                    utf8Body.Slice(start, length).CopyTo(buffer);
-                    innerBodyUtf8 = buffer.AsMemory(0, length);
+                    var length = (int)reader.BytesConsumed - start;
+                    innerBodyUtf8 = utf8Body.Slice(start, length);
                 }
             }
             else if (reader.ValueTextEquals(s_detailType))

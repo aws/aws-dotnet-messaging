@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using Amazon.SQS.Model;
+using AWS.Messaging.Serialization.Helpers;
 
 namespace AWS.Messaging.Serialization.Parsers;
 
@@ -36,6 +37,7 @@ internal interface IWrapperReader
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the outer SQS message body.</param>
     /// <param name="originalMessage">The original SQS message (for SQS-level metadata).</param>
+    /// <param name="poolManager">Manager for renting/tracking ArrayPool buffers that will be returned when processing completes.</param>
     /// <returns>The inner envelope UTF-8 bytes and wrapper metadata.</returns>
-    (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(ReadOnlySpan<byte> utf8Body, Message originalMessage);
+    (ReadOnlyMemory<byte> InnerBodyUtf8, MessageMetadata Metadata) Extract(ReadOnlyMemory<byte> utf8Body, Message originalMessage, ArrayPoolManager poolManager);
 }
