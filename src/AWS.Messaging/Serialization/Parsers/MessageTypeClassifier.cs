@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Collections.Frozen;
 using System.Text.Json;
 
 namespace AWS.Messaging.Serialization.Parsers;
@@ -16,6 +17,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     private static readonly byte[] s_typePropertyUtf8 = "Type"u8.ToArray();
 
     private readonly ReaderEntry[] _entries;
+    private readonly FrozenDictionary<string, ulong> _keyToBitMask;
+    private readonly KeyEntry[] _keyEntries;
 
     /// <summary>
     /// Creates a classifier from the DI-injected wrapper readers.
@@ -25,7 +28,9 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     public MessageTypeClassifier(IEnumerable<IWrapperReader> readers)
     {
         var readerList = new List<ReaderEntry>();
-        var bitPosition = 0;
+        var keyToBitMask = new Dictionary<string, ulong>();
+        var keyList = new List<KeyEntry>();
+        byte bitPosition = 0;
 
         foreach (var reader in readers)
         {
@@ -37,7 +42,14 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 if (bitPosition >= 64)
                     throw new InvalidOperationException("Too many discriminator keys registered (max 64).");
 
-                requiredMask |= 1UL << bitPosition;
+                var bitMask = 1UL << bitPosition;
+
+                // Convert byte[] key to string for dictionary lookup
+                var keyString = System.Text.Encoding.UTF8.GetString(key);
+                keyToBitMask[keyString] = bitMask;
+                keyList.Add(new KeyEntry(key, bitMask));
+
+                requiredMask |= bitMask;
                 bitPosition++;
             }
 
@@ -45,6 +57,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
         }
 
         _entries = [.. readerList];
+        _keyToBitMask = keyToBitMask.ToFrozenDictionary();
+        _keyEntries = [.. keyList];
     }
 
     /// <summary>
@@ -55,12 +69,12 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the SQS message body.</param>
     /// <returns>The classification result.</returns>
-    public WrapperClassificationResult Classify(ReadOnlySpan<byte> utf8Body)
+    public WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body)
     {
         ulong bitmap = 0;
         string? typeValue = null;
 
-        var reader = new Utf8JsonReader(utf8Body);
+        var reader = new Utf8JsonReader(utf8Body.Span);
 
         while (reader.Read())
         {
@@ -77,27 +91,23 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 reader.Read();
                 typeValue = reader.GetString();
 
-                // Also mark the bit for any entry that includes "Type" as a discriminator
-                SetBitsForKey(s_typePropertyUtf8, ref bitmap);
+                // Also mark the bit for "Type" if it's a registered discriminator
+                if (_keyToBitMask.TryGetValue("Type", out var typeBitMask))
+                {
+                    bitmap |= typeBitMask;
+                }
                 continue;
             }
 
-            // Try to match against all registered discriminator keys
-            var globalBit = 0;
-            var matched = false;
-            foreach (var entry in _entries)
+            // Check if this property name matches any registered discriminator key
+            // Use ValueTextEquals to avoid allocating strings for non-matching properties
+            foreach (var keyEntry in _keyEntries)
             {
-                foreach (var key in entry.Keys)
+                if (reader.ValueTextEquals(keyEntry.Utf8Key))
                 {
-                    if (reader.ValueTextEquals(key))
-                    {
-                        bitmap |= 1UL << globalBit;
-                        matched = true;
-                    }
-                    globalBit++;
-                    if (matched) break;
+                    bitmap |= keyEntry.BitMask;
+                    break;
                 }
-                if (matched) break;
             }
 
             // Skip the property value
@@ -139,24 +149,12 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
         throw new InvalidOperationException($"No wrapper reader registered for type '{wrapperType}'.");
     }
 
-    private void SetBitsForKey(byte[] key, ref ulong bitmap)
-    {
-        var globalBit = 0;
-        foreach (var entry in _entries)
-        {
-            foreach (var entryKey in entry.Keys)
-            {
-                if (key.AsSpan().SequenceEqual(entryKey))
-                {
-                    bitmap |= 1UL << globalBit;
-                }
-                globalBit++;
-            }
-        }
-    }
-
     private readonly record struct ReaderEntry(
         IWrapperReader Reader,
         byte[][] Keys,
         ulong RequiredMask);
+
+    private readonly record struct KeyEntry(
+        byte[] Utf8Key,
+        ulong BitMask);
 }

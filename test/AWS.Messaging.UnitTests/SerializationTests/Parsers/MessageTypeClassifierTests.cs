@@ -30,7 +30,7 @@ public class MessageTypeClassifierTests
             "TopicArn": "arn:aws:sns:us-east-1:123:topic",
             "Message": "hello"
         }
-        """u8;
+        """u8.ToArray();
 
         var result = _classifier.Classify(json);
 
@@ -48,7 +48,7 @@ public class MessageTypeClassifierTests
             "TopicArn": "arn:aws:sns:us-east-1:123:topic",
             "Message": "hello"
         }
-        """u8;
+        """u8.ToArray();
 
         var result = _classifier.Classify(json);
 
@@ -65,7 +65,7 @@ public class MessageTypeClassifierTests
             "source": "my.source",
             "time": "2024-03-15T10:00:00Z"
         }
-        """u8;
+        """u8.ToArray();
 
         var result = _classifier.Classify(json);
 
@@ -84,7 +84,7 @@ public class MessageTypeClassifierTests
             "time": "2024-03-15T10:00:00Z",
             "data": {}
         }
-        """u8;
+        """u8.ToArray();
 
         var result = _classifier.Classify(json);
 
@@ -101,7 +101,7 @@ public class MessageTypeClassifierTests
             "MessageId": "sns-msg-1",
             "Message": "hello"
         }
-        """u8;
+        """u8.ToArray();
 
         var result = _classifier.Classify(json);
 

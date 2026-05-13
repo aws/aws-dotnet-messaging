@@ -16,7 +16,7 @@ internal interface IMessageTypeClassifier
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the SQS message body.</param>
     /// <returns>The classification result.</returns>
-    WrapperClassificationResult Classify(ReadOnlySpan<byte> utf8Body);
+    WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body);
 
     /// <summary>
     /// Returns the <see cref="IWrapperReader"/> for the given wrapper type.

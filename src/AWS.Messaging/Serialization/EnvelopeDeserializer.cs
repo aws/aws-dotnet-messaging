@@ -303,7 +303,7 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
         var actualBytes = Encoding.UTF8.GetBytes(sqsMessage.Body, rented);
         var utf8Body = rented.AsMemory(0, actualBytes);
 
-        var classification = _classifier.Classify(utf8Body.Span);
+        var classification = _classifier.Classify(utf8Body);
 
         if (classification.WrapperType == WrapperType.Sqs)
         {
