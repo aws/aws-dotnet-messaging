@@ -7,7 +7,7 @@ using AWS.Messaging.Configuration;
 namespace AWS.Messaging.Serialization;
 
 /// <summary>
-/// Indicates the result of <see cref="EnvelopeSerializer.ConvertToEnvelopeAsync(Message)"/>
+/// Indicates the result of <see cref="IEnvelopeDeserializer.ConvertToEnvelopeAsync(Message)"/>
 /// </summary>
 public class ConvertToEnvelopeResult
 {

@@ -349,9 +349,9 @@ public class SQSMessagePollerTests
         var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
 
         var sqsPoller = Assert.IsType<SQSMessagePoller>(poller);
-        var envelopeSerializer = sqsPoller.EnvelopeSerializer;
+        var envelopeDeserializer = sqsPoller.EnvelopeDeserializer;
 
-        var result = await envelopeSerializer.ConvertToEnvelopeAsync(new Message
+        var result = await envelopeDeserializer.ConvertToEnvelopeAsync(new Message
         {
             MessageId = "m-1",
             ReceiptHandle = "rh-1",
@@ -415,11 +415,11 @@ public class SQSMessagePollerTests
         var poller = messagePollerFactory.CreateMessagePoller(pollerConfiguration);
 
         var sqsPoller = Assert.IsType<SQSMessagePoller>(poller);
-        var envelopeSerializer = sqsPoller.EnvelopeSerializer;
+        var envelopeDeserializer = sqsPoller.EnvelopeDeserializer;
 
         await Assert.ThrowsAsync<FailedToCreateMessageEnvelopeException>(async () =>
         {
-            await envelopeSerializer.ConvertToEnvelopeAsync(new Message
+            await envelopeDeserializer.ConvertToEnvelopeAsync(new Message
             {
                 MessageId = "m-1",
                 ReceiptHandle = "rh-1",

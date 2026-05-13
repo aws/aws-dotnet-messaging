@@ -25,7 +25,7 @@ public class EnvelopeSerializerBenchmarks
     [Params(PayloadSize.Small, PayloadSize.Medium, PayloadSize.Large)]
     public PayloadSize Payload { get; set; }
 
-    private IEnvelopeSerializer _envelopeSerializer = null!;
+    private IEnvelopeDeserializer _envelopeDeserializer = null!;
     private Message _sqsMessage = null!;
     private Message _snsMessage = null!;
     private Message _eventBridgeMessage = null!;
@@ -33,7 +33,7 @@ public class EnvelopeSerializerBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _envelopeSerializer = BuildEnvelopeSerializer();
+        _envelopeDeserializer = BuildEnvelopeDeserializer();
 
         var dataJson = Payload switch
         {
@@ -91,7 +91,7 @@ public class EnvelopeSerializerBenchmarks
         _eventBridgeMessage = new Message { Body = ebWrapped, MessageId = "msg-4", ReceiptHandle = "rh-4" };
     }
 
-    private static IEnvelopeSerializer BuildEnvelopeSerializer()
+    private static IEnvelopeDeserializer BuildEnvelopeDeserializer()
     {
         var services = new ServiceCollection();
         services.AddLogging(b => b.ClearProviders());
@@ -105,25 +105,25 @@ public class EnvelopeSerializerBenchmarks
         services.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler));
         services.AddOptions<RentedBufferOptions>().Configure(options => options.CleanRentedBuffers = false);
         var provider = services.BuildServiceProvider();
-        return provider.GetRequiredService<IEnvelopeSerializer>();
+        return provider.GetRequiredService<IEnvelopeDeserializer>();
     }
 
     [Benchmark]
     public async ValueTask<ConvertToEnvelopeResult> Deserialize_Envelope()
     {
-        return await _envelopeSerializer.ConvertToEnvelopeAsync(_sqsMessage);
+        return await _envelopeDeserializer.ConvertToEnvelopeAsync(_sqsMessage);
     }
 
     [Benchmark]
     public async ValueTask<ConvertToEnvelopeResult> Deserialize_SNS_Wrapped()
     {
-        return await _envelopeSerializer.ConvertToEnvelopeAsync(_snsMessage);
+        return await _envelopeDeserializer.ConvertToEnvelopeAsync(_snsMessage);
     }
 
     [Benchmark]
     public async ValueTask<ConvertToEnvelopeResult> Deserialize_EventBridge_Wrapped()
     {
-        return await _envelopeSerializer.ConvertToEnvelopeAsync(_eventBridgeMessage);
+        return await _envelopeDeserializer.ConvertToEnvelopeAsync(_eventBridgeMessage);
     }
 
     // --- Payload factories ---

@@ -18,7 +18,7 @@ internal class DefaultLambdaMessageProcessor : ILambdaMessageProcessor, ISQSMess
     private readonly IAmazonSQS _sqsClient;
     private readonly ILogger<DefaultLambdaMessageProcessor> _logger;
     private readonly IMessageManager _messageManager;
-    private readonly IEnvelopeSerializer _envelopeSerializer;
+    private readonly IEnvelopeDeserializer _envelopeDeserializer;
     private readonly LambdaMessageProcessorConfiguration _configuration;
     private readonly ITelemetryFactory _telemetryFactory;
     private readonly bool _isFifoEndpoint;
@@ -35,19 +35,19 @@ internal class DefaultLambdaMessageProcessor : ILambdaMessageProcessor, ISQSMess
     /// <param name="messageManagerFactory">The factory to create the message manager for processing messages.</param>
     /// <param name="awsClientProvider">Provides the AWS service client from the DI container.</param>
     /// <param name="configuration">The Lambda message processor configuration.</param>
-    /// <param name="envelopeSerializer">Serializer used to deserialize the SQS messages</param>
+    /// <param name="envelopeDeserializer">Deserializer used to deserialize the SQS messages</param>
     /// <param name="telemetryFactory">Factory for telemetry data</param>
     public DefaultLambdaMessageProcessor(
         ILogger<DefaultLambdaMessageProcessor> logger,
         IMessageManagerFactory messageManagerFactory,
         IAWSClientProvider awsClientProvider,
         LambdaMessageProcessorConfiguration configuration,
-        IEnvelopeSerializer envelopeSerializer,
+        IEnvelopeDeserializer envelopeDeserializer,
         ITelemetryFactory telemetryFactory)
     {
         _logger = logger;
         _sqsClient = awsClientProvider.GetServiceClient<IAmazonSQS>();
-        _envelopeSerializer = envelopeSerializer;
+        _envelopeDeserializer = envelopeDeserializer;
         _configuration = configuration;
         _messageManager = messageManagerFactory.CreateMessageManager(this, new MessageManagerConfiguration
         {
@@ -88,7 +88,7 @@ internal class DefaultLambdaMessageProcessor : ILambdaMessageProcessor, ISQSMess
                     foreach (var record in sqsEvent.Records)
                     {
                         var message = ConvertToStandardSQSMessage(record);
-                        var messageEnvelopeResult = await _envelopeSerializer.ConvertToEnvelopeAsync(message);
+                        var messageEnvelopeResult = await _envelopeDeserializer.ConvertToEnvelopeAsync(message);
                         messageEnvelopeResults.Add(messageEnvelopeResult);
 
                         trace.AddMetadata(TelemetryKeys.MessageId, messageEnvelopeResult.Envelope.Id);

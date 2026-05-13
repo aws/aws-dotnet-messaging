@@ -61,11 +61,11 @@ public class SQSPublisherTests : IAsyncLifetime
         var receiveMessageResponse = await _sqsClient.ReceiveMessageAsync(_sqsQueueUrl);
         var message = Assert.Single(receiveMessageResponse.Messages);
 
-        // Get the EnvelopeSerializer from the service provider
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        // Get the EnvelopeDeserializer from the service provider
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
 
-        // Use the EnvelopeSerializer to convert the message
-        var result = await envelopeSerializer.ConvertToEnvelopeAsync(message);
+        // Use the EnvelopeDeserializer to convert the message
+        var result = await envelopeDeserializer.ConvertToEnvelopeAsync(message);
         var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
 
         Assert.NotNull(envelope);
@@ -124,10 +124,10 @@ public class SQSPublisherTests : IAsyncLifetime
 
         Assert.Equal(5, receivedMessages.Count);
 
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
         for (var i = 0; i < receivedMessages.Count; i++)
         {
-            var result = await envelopeSerializer.ConvertToEnvelopeAsync(receivedMessages[i]);
+            var result = await envelopeDeserializer.ConvertToEnvelopeAsync(receivedMessages[i]);
             var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
 
             Assert.NotNull(envelope);

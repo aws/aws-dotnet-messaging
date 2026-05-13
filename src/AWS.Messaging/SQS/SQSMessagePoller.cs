@@ -20,7 +20,7 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
     private readonly ILogger<SQSMessagePoller> _logger;
     private readonly IMessageManager _messageManager;
     private readonly SQSMessagePollerConfiguration _configuration;
-    private readonly IEnvelopeSerializer _envelopeSerializer;
+    private readonly IEnvelopeDeserializer _envelopeDeserializer;
     private readonly IBackoffHandler _backoffHandler;
     private readonly PollingControlToken _pollingControlToken;
     private readonly bool _isFifoEndpoint;
@@ -48,7 +48,7 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
     /// <param name="messageManagerFactory">The factory to create the message manager for processing messages.</param>
     /// <param name="awsClientProvider">Provides the AWS service client from the DI container.</param>
     /// <param name="configuration">The SQS message poller configuration.</param>
-    /// <param name="envelopeSerializer">Serializer used to deserialize the SQS messages</param>
+    /// <param name="envelopeDeserializer">Deserializer used to deserialize the SQS messages</param>
     /// <param name="backoffHandler">Backoff handler for performing back-offs if exceptions are thrown when polling SQS.</param>
     /// <param name="pollingControlToken">Control token to start and stop the poller.</param>
     public SQSMessagePoller(
@@ -56,14 +56,14 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
         IMessageManagerFactory messageManagerFactory,
         IAWSClientProvider awsClientProvider,
         SQSMessagePollerConfiguration configuration,
-        IEnvelopeSerializer envelopeSerializer,
+        IEnvelopeDeserializer envelopeDeserializer,
         IBackoffHandler backoffHandler,
         PollingControlToken pollingControlToken)
     {
         _logger = logger;
         _sqsClient = awsClientProvider.GetServiceClient<IAmazonSQS>();
         _configuration = configuration;
-        _envelopeSerializer = envelopeSerializer;
+        _envelopeDeserializer = envelopeDeserializer;
         _backoffHandler = backoffHandler;
         _pollingControlToken = pollingControlToken;
         _isFifoEndpoint = configuration.SubscriberEndpoint.EndsWith(".fifo");
@@ -71,7 +71,7 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
         _messageManager = messageManagerFactory.CreateMessageManager(this, _configuration.ToMessageManagerConfiguration());
     }
 
-    internal IEnvelopeSerializer EnvelopeSerializer => _envelopeSerializer;
+    internal IEnvelopeDeserializer EnvelopeDeserializer => _envelopeDeserializer;
 
     /// <inheritdoc/>
     public async Task StartPollingAsync(CancellationToken token = default)
@@ -154,7 +154,7 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
             {
                 try
                 {
-                    var messageEnvelopeResult = await _envelopeSerializer.ConvertToEnvelopeAsync(message);
+                    var messageEnvelopeResult = await _envelopeDeserializer.ConvertToEnvelopeAsync(message);
                     messageEnvelopResults.Add(messageEnvelopeResult);
                 }
                 catch (AWSMessagingException)
