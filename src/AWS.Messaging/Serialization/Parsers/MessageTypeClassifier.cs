@@ -122,14 +122,14 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
         {
             if ((bitmap & entry.RequiredMask) == entry.RequiredMask)
             {
-                var result = new WrapperClassificationResult(entry.Reader.WrapperType, bitmap, typeValue);
+                var result = new WrapperClassificationResult(entry.Reader.WrapperType, typeValue);
                 if (entry.Reader.Validate(result))
                     return result;
             }
         }
 
         // Fallback: plain SQS message (body IS the envelope)
-        return new WrapperClassificationResult(WrapperType.Sqs, bitmap, typeValue);
+        return new WrapperClassificationResult(WrapperType.Sqs, typeValue);
     }
 
     /// <summary>

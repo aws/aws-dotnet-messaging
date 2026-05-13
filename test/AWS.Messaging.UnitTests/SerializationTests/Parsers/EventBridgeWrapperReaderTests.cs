@@ -130,7 +130,7 @@ public class EventBridgeWrapperReaderTests
     [Fact]
     public void Validate_AlwaysReturnsTrue()
     {
-        var result = new WrapperClassificationResult(WrapperType.EventBridge, 0, null);
+        var result = new WrapperClassificationResult(WrapperType.EventBridge, null);
 
         Assert.True(_reader.Validate(result));
     }

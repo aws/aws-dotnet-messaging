@@ -8,15 +8,10 @@ namespace AWS.Messaging.Serialization.Parsers;
 /// Contains the detected wrapper type and any captured values needed for validation.
 /// </summary>
 /// <param name="WrapperType">The wrapper type determined by the classifier.</param>
-/// <param name="KeyBitmap">
-/// The bitmap of matched discriminator keys.
-/// Each bit position corresponds to a key registered by an <see cref="IWrapperReader"/>.
-/// </param>
 /// <param name="TypeValue">
 /// The captured value of the "Type" property (if present at depth 1).
 /// Used by SNS reader to verify <c>"Type" == "Notification"</c>.
 /// </param>
 internal readonly record struct WrapperClassificationResult(
     WrapperType WrapperType,
-    ulong KeyBitmap,
     string? TypeValue);

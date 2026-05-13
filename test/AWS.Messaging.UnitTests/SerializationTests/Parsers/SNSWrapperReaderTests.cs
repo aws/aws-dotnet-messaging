@@ -106,7 +106,7 @@ public class SNSWrapperReaderTests
     [Fact]
     public void Validate_WithNotificationType_ReturnsTrue()
     {
-        var result = new WrapperClassificationResult(WrapperType.Sns, 0, "Notification");
+        var result = new WrapperClassificationResult(WrapperType.Sns, "Notification");
 
         Assert.True(_reader.Validate(result));
     }
@@ -114,7 +114,7 @@ public class SNSWrapperReaderTests
     [Fact]
     public void Validate_WithNonNotificationType_ReturnsFalse()
     {
-        var result = new WrapperClassificationResult(WrapperType.Sns, 0, "SubscriptionConfirmation");
+        var result = new WrapperClassificationResult(WrapperType.Sns, "SubscriptionConfirmation");
 
         Assert.False(_reader.Validate(result));
     }
@@ -122,7 +122,7 @@ public class SNSWrapperReaderTests
     [Fact]
     public void Validate_WithNullType_ReturnsFalse()
     {
-        var result = new WrapperClassificationResult(WrapperType.Sns, 0, null);
+        var result = new WrapperClassificationResult(WrapperType.Sns, null);
 
         Assert.False(_reader.Validate(result));
     }
