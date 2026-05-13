@@ -126,9 +126,9 @@ internal class MessageRoutingPublisher : IMessagePublisher
                     else
                     {
                         _logger.LogError("The message publisher corresponding to the type '{PublishTargetType}' is invalid " +
-                                         "and does not implement the interface '{CommandInterfaceType}' or '{EventInterfaceType}'.", mapping.PublishTargetType, typeof(ICommandPublisher), typeof(IEventPublisher));
+                                         "and does not implement the interface '{EventInterfaceType}' or '{SNSInterfaceType}' or '{SQSInterfaceType}'.", mapping.PublishTargetType, typeof(IEventPublisher), typeof(ISNSPublisher), typeof(ISQSPublisher));
                         throw new InvalidPublisherTypeException($"The message publisher corresponding to the type '{mapping.PublishTargetType}' is invalid " +
-                                                                $"and does not implement the interface '{typeof(ICommandPublisher)}' or '{typeof(IEventPublisher)}'.");
+                                                                $"and does not implement the interface '{typeof(IEventPublisher)}' or '{typeof(ISNSPublisher)}' or '{typeof(ISQSPublisher)}'.");
                     }
                 }
                 else
