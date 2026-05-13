@@ -6,28 +6,20 @@ using System.Text.Json;
 namespace AWS.Messaging.Serialization;
 
 /// <summary>
-/// Supports deserialization of domain-specific application messages directly from a <see cref="JsonElement"/>
-/// or from raw UTF-8 bytes, avoiding the intermediate string allocation and re-parse that occurs with
+/// Provides optimized deserialization of application messages directly from UTF-8 encoded JSON bytes,
+/// avoiding the intermediate string allocation and UTF-16 conversion that occurs with
 /// <see cref="IMessageSerializer.Deserialize(string, Type)"/>.
-/// This interface extends <see cref="IMessageSerializer"/> to provide allocation-free deserialization,
-/// mirroring the pattern established by <see cref="IMessageSerializerUtf8JsonWriter"/> for serialization.
+/// Complements the write optimizations provided by <see cref="IMessageSerializerUtf8JsonWriter"/>.
 /// </summary>
-public interface IMessageSerializerUtf8JsonReader
+internal interface IMessageSerializerUtf8JsonReader
 {
     /// <summary>
-    /// Deserializes the .NET message object directly from a <see cref="JsonElement"/>.
+    /// Deserializes an application message directly from UTF-8 encoded JSON bytes,
+    /// eliminating the intermediate string allocation and UTF-16 conversion that occurs
+    /// with <see cref="IMessageSerializer.Deserialize(string, Type)"/>.
     /// </summary>
-    /// <param name="element">The <see cref="JsonElement"/> containing the data to deserialize.</param>
-    /// <param name="deserializedType">The .NET type to deserialize the element into.</param>
-    /// <returns>The deserialized object.</returns>
-    object DeserializeFromElement(JsonElement element, Type deserializedType);
-
-    /// <summary>
-    /// Deserializes the .NET message object directly from raw UTF-8 bytes,
-    /// eliminating the need to first convert to a string or parse into a JsonDocument.
-    /// </summary>
-    /// <param name="utf8Json">The raw UTF-8 encoded JSON bytes.</param>
-    /// <param name="deserializedType">The .NET type to deserialize the bytes into.</param>
-    /// <returns>The deserialized object.</returns>
+    /// <param name="utf8Json">The raw UTF-8 JSON bytes representing the serialized message.</param>
+    /// <param name="deserializedType">The target .NET type for deserialization.</param>
+    /// <returns>The deserialized message object.</returns>
     object DeserializeFromUtf8Bytes(ReadOnlySpan<byte> utf8Json, Type deserializedType);
 }

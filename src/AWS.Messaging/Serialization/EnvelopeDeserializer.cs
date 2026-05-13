@@ -97,6 +97,39 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
 
     private ConvertToEnvelopeResult ConvertToEnvelopeCore(Message sqsMessage)
     {
+        // Example 1: SNS-wrapped message in SQS
+        /*
+        sqsMessage.Body = {
+            "Type": "Notification",
+            "MessageId": "abc-123",
+            "TopicArn": "arn:aws:sns:us-east-1:123456789012:MyTopic",
+            "Message": {
+                "id": "order-123",
+                "source": "com.myapp.orders",
+                "type": "OrderCreated",
+                "time": "2024-03-21T10:00:00Z",
+                "data": {
+                    "orderId": "12345",
+                    "amount": 99.99
+                }
+            }
+        }
+        */
+
+        // Example 2: Raw SQS message
+        /*
+        sqsMessage.Body = {
+            "id": "order-123",
+            "source": "com.myapp.orders",
+            "type": "OrderCreated",
+            "time": "2024-03-21T10:00:00Z",
+            "data": {
+                "orderId": "12345",
+                "amount": 99.99
+            }
+        }
+        */
+
         using var poolManager = new ArrayPoolManager(initialRentCapacity: 2, clearRentedBuffers: true);
         var (envelopeUtf8, metadata) = ParseOuterWrapperCore(sqsMessage, poolManager);
 
@@ -105,6 +138,28 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
         envelope.SQSMetadata = metadata.SQSMetadata;
         envelope.SNSMetadata = metadata.SNSMetadata;
         envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
+
+        // Example 1 final return:
+        // MessageBody = {
+        //     "id": "order-123",
+        //     "source": "com.myapp.orders",
+        //     "type": "OrderCreated",
+        //     "time": "2024-03-21T10:00:00Z",
+        //     "data": { ... }
+        // }
+        // Metadata = {
+        //     SNSMetadata: { TopicArn: "arn:aws...", MessageId: "abc-123" }
+        // }
+
+        // Example 2 final return:
+        // MessageBody = {
+        //     "id": "order-123",
+        //     "source": "com.myapp.orders",
+        //     "type": "OrderCreated",
+        //     "time": "2024-03-21T10:00:00Z",
+        //     "data": { ... }
+        // }
+        // Metadata = { } // Just basic SQS metadata
 
         return new ConvertToEnvelopeResult(envelope, subscriberMapping);
     }
@@ -121,7 +176,7 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
         if (ReferenceEquals(dataContentType, CloudEventConstants.ApplicationJson))
             return true;
 
-        ReadOnlySpan<char> contentType = dataContentType.AsSpan().Trim();
+        var contentType = dataContentType.AsSpan().Trim();
 
         // Remove parameters (anything after ';')
         var semicolonIndex = contentType.IndexOf(';');
@@ -142,7 +197,7 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
             return false;
         }
 
-        ReadOnlySpan<char> subtype = contentType.Slice(slashIndex + 1);
+        var subtype = contentType.Slice(slashIndex + 1);
 
         // Check if the media subtype is "json" or ends with "+json"
         return subtype.Equals("json", StringComparison.OrdinalIgnoreCase)
