@@ -304,7 +304,7 @@ public class LargePayloadHandler : IMessageHandler<LargePayload>
 [JsonSerializable(typeof(SmallPayload))]
 [JsonSerializable(typeof(MediumPayload))]
 [JsonSerializable(typeof(LargePayload))]
-[JsonSourceGenerationOptions(Converters = [typeof(JsonStringEnumConverter)])]
+[JsonSourceGenerationOptions]
 internal partial class BenchmarkJsonContext : JsonSerializerContext
 {
 }

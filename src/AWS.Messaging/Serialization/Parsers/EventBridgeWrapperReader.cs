@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Serialization.Helpers;
@@ -123,6 +124,7 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
         return (innerBodyUtf8, metadata);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static PropertyType IdentifyProperty(ref Utf8JsonReader reader)
     {
         if (reader.ValueTextEquals(s_detail)) return PropertyType.Detail;
@@ -137,6 +139,7 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
         return PropertyType.Unknown;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ReadOnlyMemory<byte> ReadDetail(
         ref Utf8JsonReader reader, ReadOnlyMemory<byte> utf8Body, ArrayPoolManager poolManager)
     {
@@ -165,24 +168,28 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ReadDetailType(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
     {
         reader.Read();
         metadata.DetailType = reader.GetString();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ReadSource(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
     {
         reader.Read();
         metadata.Source = reader.GetString();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ReadTime(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
     {
         reader.Read();
         metadata.Time = reader.GetDateTimeOffset();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static List<string>? ReadResources(ref Utf8JsonReader reader)
     {
         reader.Read();

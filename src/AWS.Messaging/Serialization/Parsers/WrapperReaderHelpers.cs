@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace AWS.Messaging.Serialization.Parsers;
@@ -17,6 +18,7 @@ internal static class WrapperReaderHelpers
     /// </summary>
     /// <param name="reader">The JSON reader positioned at a property name.</param>
     /// <returns>The string value or null if the JSON value is null.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static string? ReadNullableString(ref Utf8JsonReader reader)
     {
         reader.Read();
@@ -28,6 +30,7 @@ internal static class WrapperReaderHelpers
     /// Advances the reader and handles both simple values and complex objects/arrays.
     /// </summary>
     /// <param name="reader">The JSON reader positioned at a property name.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void SkipUnknownProperty(ref Utf8JsonReader reader)
     {
         reader.Read();

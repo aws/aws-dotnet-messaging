@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Internal;
@@ -110,6 +111,7 @@ internal sealed class SNSWrapperReader : IWrapperReader
         return (innerBodyUtf8, metadata);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static PropertyType IdentifyProperty(ref Utf8JsonReader reader)
     {
         if (reader.ValueTextEquals(s_message)) return PropertyType.Message;
@@ -123,6 +125,7 @@ internal sealed class SNSWrapperReader : IWrapperReader
         return PropertyType.Unknown;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ReadOnlyMemory<byte> ReadMessage(ref Utf8JsonReader reader, ArrayPoolManager poolManager)
     {
         reader.Read();
@@ -134,12 +137,14 @@ internal sealed class SNSWrapperReader : IWrapperReader
         return buffer.AsMemory(0, written);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ReadTimestamp(ref Utf8JsonReader reader, SNSMetadata metadata)
     {
         reader.Read();
         metadata.Timestamp = reader.GetDateTimeOffset();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ReadMessageAttributes(ref Utf8JsonReader reader, SNSMetadata metadata)
     {
         reader.Read();
