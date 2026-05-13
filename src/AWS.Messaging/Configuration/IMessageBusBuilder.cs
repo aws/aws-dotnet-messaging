@@ -153,6 +153,19 @@ public interface IMessageBusBuilder
     IMessageBusBuilder AddAdditionalService(ServiceDescriptor serviceDescriptor);
 
     /// <summary>
+    /// Add additional services to the <see cref="IMessageBusBuilder"/> by registering a callback that receives the current
+    /// <see cref="IMessageConfiguration"/> and the target <see cref="IServiceCollection"/>. This method is used for
+    /// AWS.Messaging plugins to add services for messaging. The callback is invoked during <c>builder.Build()</c> after
+    /// all framework service registrations have completed. The <see cref="IMessageConfiguration"/> parameter should be
+    /// treated as read-only; any mutations to it will not be reflected in the services already registered by the framework.
+    /// </summary>
+    /// <param name="action">Configuration action to perform during <c>builder.Build()</c>. The first parameter is the current
+    /// <see cref="IMessageConfiguration"/> (read-only — mutations will not affect prior registrations), and the second
+    /// parameter is the <see cref="IServiceCollection"/> to which additional services can be added.</param>
+    /// <returns></returns>
+    IMessageBusBuilder AddAdditionalService(Action<IMessageConfiguration, IServiceCollection> action);
+
+    /// <summary>
     /// Enables the visibility of data messages in the logging framework, exception handling and other areas.
     /// If this is enabled, messages sent by this framework will be visible in plain text across the framework's components.
     /// This means any sensitive user data sent by this framework will be visible in logs, any exceptions thrown and others.
