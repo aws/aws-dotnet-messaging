@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging.Telemetry.OpenTelemetry",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Updated OpenTelemetry package dependencies to 1.15.3."
+      ]
+    }
+  ]
+}

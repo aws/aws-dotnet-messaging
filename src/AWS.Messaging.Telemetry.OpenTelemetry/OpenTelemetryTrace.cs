@@ -32,7 +32,8 @@ public class OpenTelemetryTrace : ITelemetryTrace
     /// <inheritdoc/>
     public void AddException(Exception exception, bool fatal = true)
     {
-        _activity?.RecordException(exception);
+        var tags = new TagList();
+        _activity?.AddException(exception, in tags, default);
 
         if (fatal)
         {

@@ -105,6 +105,7 @@ internal sealed class RentArrayBufferWriter : IBufferWriter<byte>, IDisposable
         if (_cleanRentedBuffers)
         {
             _rentedBuffer.AsSpan(0, _written).Clear();
+
         }
         _written = 0;
     }

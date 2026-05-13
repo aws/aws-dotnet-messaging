@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
+using System.Reflection;
 using AWS.Messaging.Configuration.Internal;
 using AWS.Messaging.Publishers;
 using AWS.Messaging.Publishers.EventBridge;
@@ -13,13 +16,11 @@ using AWS.Messaging.Services;
 using AWS.Messaging.Services.Backoff;
 using AWS.Messaging.Services.Backoff.Policies;
 using AWS.Messaging.Telemetry;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 
 namespace AWS.Messaging.Configuration;
 
@@ -30,7 +31,7 @@ public class MessageBusBuilder : IMessageBusBuilder
 {
     private static readonly ConcurrentDictionary<IServiceCollection, MessageConfiguration> _messageConfigurations = new();
     private readonly MessageConfiguration _messageConfiguration;
-    private readonly List<ServiceDescriptor> _additionalServices = [];
+    private readonly IList<Action<IMessageConfiguration, IServiceCollection>> _additionalServices = new List<Action<IMessageConfiguration, IServiceCollection>>();
     private readonly IServiceCollection _serviceCollection;
 
     /// <summary>
@@ -100,13 +101,31 @@ public class MessageBusBuilder : IMessageBusBuilder
     public IMessageBusBuilder AddMessageHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THandler, TMessage>(string? messageTypeIdentifier = null)
         where THandler : IMessageHandler<TMessage>
     {
-        return AddMessageHandler(typeof(THandler), typeof(TMessage), () => new MessageEnvelope<TMessage>(), messageTypeIdentifier);
+        var subscriberMapping = SubscriberMapping.Create<THandler, TMessage>(messageTypeIdentifier);
+        _messageConfiguration.SubscriberMappings.Add(subscriberMapping);
+        return this;
     }
 
-    private IMessageBusBuilder AddMessageHandler([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, string? messageTypeIdentifier = null)
+    private IMessageBusBuilder AddMessageHandler([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type handlerType, Type messageType, Func<MessageEnvelope> envelopeFactory, HandlerInvokerDelegate handlerInvokerDelegate, string? messageTypeIdentifier = null)
     {
-        var subscriberMapping = new SubscriberMapping(handlerType, messageType, envelopeFactory, messageTypeIdentifier);
+        var subscriberMapping = new SubscriberMapping(handlerType, messageType, envelopeFactory, handlerInvokerDelegate, messageTypeIdentifier);
         _messageConfiguration.SubscriberMappings.Add(subscriberMapping);
+        return this;
+    }
+
+    /// <inheritdoc/>
+    public IMessageBusBuilder AddMessageErrorHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(ServiceLifetime serviceLifetime = ServiceLifetime.Singleton)
+        where T : IMessageErrorHandler
+    {
+        AddAdditionalService(new ServiceDescriptor(typeof(IMessageErrorHandler), typeof(T), serviceLifetime));
+        return this;
+    }
+
+    public IMessageBusBuilder AddHandlerMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMiddleware>(ServiceLifetime serviceLifetime = ServiceLifetime.Singleton)
+        where TMiddleware : class, IHandlerMiddleware
+    {
+        var subscriberMiddleware = SubscriberMiddleware.Create<TMiddleware>(serviceLifetime);
+        _messageConfiguration.SubscriberMiddleware.Add(subscriberMiddleware);
         return this;
     }
 
@@ -268,12 +287,13 @@ public class MessageBusBuilder : IMessageBusBuilder
                 var handlerType = GetTypeFromAssemblies(callingAssembly, messageHandler.HandlerType)
                     ?? throw new InvalidAppSettingsConfigurationException($"Unable to find the provided message handler type '{messageHandler.HandlerType}'.");
 
+                var messageEnvelopeType = typeof(MessageEnvelope<>).MakeGenericType(messageType);
+
                 // This func is not Native AOT compatible but the method in general is marked
                 // as not being Native AOT compatible due to loading dynamic types. So this
                 // func not being Native AOT compatible is okay.
                 MessageEnvelope envelopeFactory()
                 {
-                    var messageEnvelopeType = typeof(MessageEnvelope<>).MakeGenericType(messageType);
                     var envelope = Activator.CreateInstance(messageEnvelopeType);
                     if (envelope == null || envelope is not MessageEnvelope)
                     {
@@ -283,7 +303,8 @@ public class MessageBusBuilder : IMessageBusBuilder
                     return (MessageEnvelope)envelope;
                 }
 
-                AddMessageHandler(handlerType, messageType, envelopeFactory, messageHandler.MessageTypeIdentifier);
+                var handlerInoker = BuildHandlerInvoker(messageType, messageEnvelopeType);
+                AddMessageHandler(handlerType, messageType, envelopeFactory, handlerInoker, messageHandler.MessageTypeIdentifier);
             }
         }
 
@@ -328,6 +349,28 @@ public class MessageBusBuilder : IMessageBusBuilder
         }
 
         return this;
+
+        // This is not Native AOT compatible but the method in general is marked
+        // as not being Native AOT compatible due to loading dynamic types. So this
+        // func not being Native AOT compatible is okay.
+        static HandlerInvokerDelegate BuildHandlerInvoker(Type messageType, Type messageEnvelopeType)
+        {
+            var invokerParam = Expression.Parameter(typeof(HandlerInvoker), "invoker");
+            var envelopeParam = Expression.Parameter(typeof(MessageEnvelope), "envelope");
+            var mappingParam = Expression.Parameter(typeof(SubscriberMapping), "mapping");
+            var tokenParam = Expression.Parameter(typeof(CancellationToken), "token");
+
+            var genericMethodDef = typeof(HandlerInvoker)
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .First(m => m.Name == nameof(HandlerInvoker.InvokeAsync) && m.IsGenericMethodDefinition)
+                .GetGenericMethodDefinition();
+
+            var closedMethod = genericMethodDef.MakeGenericMethod(messageType);
+            var typedEnvelope = Expression.Convert(envelopeParam, messageEnvelopeType);
+            var call = Expression.Call(invokerParam, closedMethod, typedEnvelope, mappingParam, tokenParam);
+            var lambda = Expression.Lambda<HandlerInvokerDelegate>(call, invokerParam, envelopeParam, mappingParam, tokenParam);
+            return lambda.Compile();
+        }
     }
 
     [RequiresUnreferencedCode("This method requires loading types dynamically as defined in the configuration system.")]
@@ -346,7 +389,16 @@ public class MessageBusBuilder : IMessageBusBuilder
     /// <inheritdoc/>
     public IMessageBusBuilder AddAdditionalService(ServiceDescriptor serviceDescriptor)
     {
-        _additionalServices.Add(serviceDescriptor);
+        ArgumentNullException.ThrowIfNull(serviceDescriptor);
+        _additionalServices.Add((_, services) => services.TryAdd(serviceDescriptor));
+        return this;
+    }
+
+    /// <inheritdoc/>
+    public IMessageBusBuilder AddAdditionalService(Action<IMessageConfiguration, IServiceCollection> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        _additionalServices.Add(action);
         return this;
     }
 
@@ -379,14 +431,13 @@ public class MessageBusBuilder : IMessageBusBuilder
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
 
         // Wrapper readers (order is irrelevant — classification is bitmap-based)
-        _serviceCollection.AddSingleton<IWrapperReader, SNSWrapperReader>();
-        _serviceCollection.AddSingleton<IWrapperReader, EventBridgeWrapperReader>();
+        _serviceCollection.TryAddSingleton<IWrapperReader, SNSWrapperReader>();
+        _serviceCollection.TryAddSingleton<IWrapperReader, EventBridgeWrapperReader>();
         _serviceCollection.TryAddSingleton<ISQSWrapperReader, SQSWrapperReader>();
         _serviceCollection.TryAddSingleton<IMessageTypeClassifier, MessageTypeClassifier>();
 
-        _serviceCollection.AddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
+        _serviceCollection.TryAddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
         _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
-
         _serviceCollection.TryAddSingleton<IDateTimeHandler, DateTimeHandler>();
         _serviceCollection.TryAddSingleton<IMessageIdGenerator, MessageIdGenerator>();
         _serviceCollection.TryAddSingleton<IAWSClientProvider, AWSClientProvider>();
@@ -431,6 +482,11 @@ public class MessageBusBuilder : IMessageBusBuilder
             {
                 _serviceCollection.TryAddScoped(subscriberMapping.HandlerType);
             }
+
+            foreach (var subscriberMiddleware in _messageConfiguration.SubscriberMiddleware)
+            {
+                _serviceCollection.TryAdd(new ServiceDescriptor(subscriberMiddleware.Type, subscriberMiddleware.Type, subscriberMiddleware.ServiceLifetime));
+            }
         }
 
         if (_messageConfiguration.MessagePollerConfigurations.Any())
@@ -463,9 +519,9 @@ public class MessageBusBuilder : IMessageBusBuilder
             }
         }
 
-        foreach (var service in _additionalServices)
+        foreach (var action in _additionalServices)
         {
-            _serviceCollection.TryAdd(service);
+            action.Invoke(_messageConfiguration, _serviceCollection);
         }
     }
 

@@ -19,24 +19,7 @@ public class RentedBufferOptions
     public bool CleanRentedBuffers { get; set; } = true;
 
     /// <summary>
-    /// Determines the initial size of the buffer rented from the ArrayPool when serializing messages.
-    /// The default value is 2048 bytes. Must be greater than zero.
+    /// Determines the initial size of the buffer rented from the ArrayPool when serializing messages. This can be tuned based on the expected message size to improve performance. The default value is 2048 bytes, which should be sufficient for most messages. Consumers can adjust this value based on their specific use case and expected message sizes to optimize performance. Setting this value too low may result in more frequent buffer rentals, while setting it too high may result in increased memory usage and costly buffer cleaning operations. Consumers should carefully consider the expected message sizes and performance requirements when tuning this setting. Custom implementations of IMessageSerializer relying on rented buffers should also respect this setting when renting buffers for serialization.
     /// </summary>
-    /// <remarks>
-    /// Setting this value too low may result in more frequent buffer rentals,
-    /// while setting it too high may result in increased memory usage and costly buffer cleaning operations.
-    /// Custom implementations of <see cref="AWS.Messaging.Serialization.IMessageSerializer"/> relying on
-    /// rented buffers should also respect this setting when renting buffers for serialization.
-    /// </remarks>
-    public int InitialBufferSize
-    {
-        get => _initialBufferSize;
-        set
-        {
-            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, 0);
-            _initialBufferSize = value;
-        }
-    }
-
-    private int _initialBufferSize = 2048;
+    public int InitialBufferSize { get; set; } = 2048;
 }
