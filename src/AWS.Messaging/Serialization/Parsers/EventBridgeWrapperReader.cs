@@ -24,6 +24,19 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
     private static readonly byte[] s_region = "region"u8.ToArray();
     private static readonly byte[] s_resources = "resources"u8.ToArray();
 
+    private enum PropertyType
+    {
+        Unknown,
+        Detail,
+        DetailType,
+        Source,
+        Time,
+        Id,
+        Account,
+        Region,
+        Resources
+    }
+
     /// <inheritdoc/>
     public WrapperType WrapperType => WrapperType.EventBridge;
 
@@ -57,85 +70,44 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
                 continue;
             }
 
-            if (reader.ValueTextEquals(s_detail))
+            switch (IdentifyProperty(ref reader))
             {
-                reader.Read();
-                if (reader.TokenType == JsonTokenType.String)
-                {
-                    // detail is a JSON string — decode escaped UTF-8 into a rented buffer
-                    var maxBytes = reader.ValueSpan.Length;
-                    var buffer = poolManager.Rent(maxBytes);
-                    var written = reader.CopyString(buffer);
-                    innerBodyUtf8 = buffer.AsMemory(0, written);
-                }
-                else if (reader.TokenType == JsonTokenType.Null)
-                {
-                    // detail is null — will throw below
-                }
-                else
-                {
-                    // detail is an object/array — return a slice of the input buffer (zero-copy)
-                    var start = (int)reader.TokenStartIndex;
-                    reader.Skip();
-                    var length = (int)reader.BytesConsumed - start;
-                    innerBodyUtf8 = utf8Body.Slice(start, length);
-                }
-            }
-            else if (reader.ValueTextEquals(s_detailType))
-            {
-                reader.Read();
-                ebMetadata.DetailType = reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_source))
-            {
-                reader.Read();
-                ebMetadata.Source = reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_time))
-            {
-                reader.Read();
-                ebMetadata.Time = reader.GetDateTimeOffset();
-            }
-            else if (reader.ValueTextEquals(s_id))
-            {
-                reader.Read();
-                // Only allocate string if value is not null
-                id = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_account))
-            {
-                reader.Read();
-                account = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_region))
-            {
-                reader.Read();
-                region = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_resources))
-            {
-                reader.Read();
-                if (reader.TokenType == JsonTokenType.StartArray)
-                {
-                    resources = new List<string>();
-                    while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-                    {
-                        if (reader.TokenType == JsonTokenType.String)
-                        {
-                            var val = reader.GetString();
-                            if (val != null)
-                                resources.Add(val);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                // Skip unknown property value
-                reader.Read();
-                if (reader.TokenType == JsonTokenType.StartObject ||
-                    reader.TokenType == JsonTokenType.StartArray)
-                    reader.Skip();
+                case PropertyType.Detail:
+                    innerBodyUtf8 = ReadDetail(ref reader, utf8Body, poolManager);
+                    break;
+
+                case PropertyType.DetailType:
+                    ReadDetailType(ref reader, ebMetadata);
+                    break;
+
+                case PropertyType.Source:
+                    ReadSource(ref reader, ebMetadata);
+                    break;
+
+                case PropertyType.Time:
+                    ReadTime(ref reader, ebMetadata);
+                    break;
+
+                case PropertyType.Id:
+                    id = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.Account:
+                    account = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.Region:
+                    region = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.Resources:
+                    resources = ReadResources(ref reader);
+                    break;
+
+                case PropertyType.Unknown:
+                default:
+                    WrapperReaderHelpers.SkipUnknownProperty(ref reader);
+                    break;
             }
         }
 
@@ -149,5 +121,87 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
 
         var metadata = new MessageMetadata { EventBridgeMetadata = ebMetadata };
         return (innerBodyUtf8, metadata);
+    }
+
+    private static PropertyType IdentifyProperty(ref Utf8JsonReader reader)
+    {
+        if (reader.ValueTextEquals(s_detail)) return PropertyType.Detail;
+        if (reader.ValueTextEquals(s_detailType)) return PropertyType.DetailType;
+        if (reader.ValueTextEquals(s_source)) return PropertyType.Source;
+        if (reader.ValueTextEquals(s_time)) return PropertyType.Time;
+        if (reader.ValueTextEquals(s_id)) return PropertyType.Id;
+        if (reader.ValueTextEquals(s_account)) return PropertyType.Account;
+        if (reader.ValueTextEquals(s_region)) return PropertyType.Region;
+        if (reader.ValueTextEquals(s_resources)) return PropertyType.Resources;
+
+        return PropertyType.Unknown;
+    }
+
+    private static ReadOnlyMemory<byte> ReadDetail(
+        ref Utf8JsonReader reader, ReadOnlyMemory<byte> utf8Body, ArrayPoolManager poolManager)
+    {
+        reader.Read();
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            // detail is a JSON string — decode escaped UTF-8 into a rented buffer
+            var maxBytes = reader.ValueSpan.Length;
+            var buffer = poolManager.Rent(maxBytes);
+            var written = reader.CopyString(buffer);
+            return buffer.AsMemory(0, written);
+        }
+        else if (reader.TokenType == JsonTokenType.Null)
+        {
+            // detail is null — will throw below
+            return default;
+        }
+        else
+        {
+            // detail is an object/array — return a slice of the input buffer (zero-copy)
+            var start = (int)reader.TokenStartIndex;
+            reader.Skip();
+            var length = (int)reader.BytesConsumed - start;
+            return utf8Body.Slice(start, length);
+        }
+    }
+
+    private static void ReadDetailType(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
+    {
+        reader.Read();
+        metadata.DetailType = reader.GetString();
+    }
+
+    private static void ReadSource(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
+    {
+        reader.Read();
+        metadata.Source = reader.GetString();
+    }
+
+    private static void ReadTime(ref Utf8JsonReader reader, EventBridgeMetadata metadata)
+    {
+        reader.Read();
+        metadata.Time = reader.GetDateTimeOffset();
+    }
+
+    private static List<string>? ReadResources(ref Utf8JsonReader reader)
+    {
+        reader.Read();
+
+        if (reader.TokenType == JsonTokenType.StartArray)
+        {
+            var resources = new List<string>();
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                if (reader.TokenType == JsonTokenType.String)
+                {
+                    var val = reader.GetString();
+                    if (val != null)
+                        resources.Add(val);
+                }
+            }
+            return resources;
+        }
+
+        return null;
     }
 }

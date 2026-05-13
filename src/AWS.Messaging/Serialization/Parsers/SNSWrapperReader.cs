@@ -25,6 +25,18 @@ internal sealed class SNSWrapperReader : IWrapperReader
     private static readonly byte[] s_subject = "Subject"u8.ToArray();
     private static readonly byte[] s_messageAttributes = "MessageAttributes"u8.ToArray();
 
+    private enum PropertyType
+    {
+        Unknown,
+        Message,
+        MessageId,
+        TopicArn,
+        Timestamp,
+        UnsubscribeUrl,
+        Subject,
+        MessageAttributes
+    }
+
     /// <inheritdoc/>
     public WrapperType WrapperType => WrapperType.Sns;
 
@@ -54,56 +66,40 @@ internal sealed class SNSWrapperReader : IWrapperReader
                 continue;
             }
 
-            if (reader.ValueTextEquals(s_message))
+            switch (IdentifyProperty(ref reader))
             {
-                reader.Read();
-                // CopyString decodes JSON-escaped UTF-8 directly into a byte buffer,
-                // avoiding the intermediate string allocation from GetString().
-                int maxBytes = reader.ValueSpan.Length; // un-escaped is always <= escaped length
-                byte[] buffer = poolManager.Rent(maxBytes);
-                int written = reader.CopyString(buffer);
-                innerBodyUtf8 = buffer.AsMemory(0, written);
-            }
-            else if (reader.ValueTextEquals(s_messageId))
-            {
-                reader.Read();
-                // Only allocate string if value is not null
-                snsMetadata.MessageId = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_topicArn))
-            {
-                reader.Read();
-                snsMetadata.TopicArn = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_timestamp))
-            {
-                reader.Read();
-                snsMetadata.Timestamp = reader.GetDateTimeOffset();
-            }
-            else if (reader.ValueTextEquals(s_unsubscribeUrl))
-            {
-                reader.Read();
-                snsMetadata.UnsubscribeURL = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_subject))
-            {
-                reader.Read();
-                snsMetadata.Subject = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
-            }
-            else if (reader.ValueTextEquals(s_messageAttributes))
-            {
-                reader.Read();
-                snsMetadata.MessageAttributes = JsonSerializer.Deserialize(
-                    ref reader,
-                    MessagingJsonSerializerContext.Default.DictionarySNSMessageAttributeValue);
-            }
-            else
-            {
-                // Skip unknown property value
-                reader.Read();
-                if (reader.TokenType == JsonTokenType.StartObject ||
-                    reader.TokenType == JsonTokenType.StartArray)
-                    reader.Skip();
+                case PropertyType.Message:
+                    innerBodyUtf8 = ReadMessage(ref reader, poolManager);
+                    break;
+
+                case PropertyType.MessageId:
+                    snsMetadata.MessageId = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.TopicArn:
+                    snsMetadata.TopicArn = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.Timestamp:
+                    ReadTimestamp(ref reader, snsMetadata);
+                    break;
+
+                case PropertyType.UnsubscribeUrl:
+                    snsMetadata.UnsubscribeURL = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.Subject:
+                    snsMetadata.Subject = WrapperReaderHelpers.ReadNullableString(ref reader);
+                    break;
+
+                case PropertyType.MessageAttributes:
+                    ReadMessageAttributes(ref reader, snsMetadata);
+                    break;
+
+                case PropertyType.Unknown:
+                default:
+                    WrapperReaderHelpers.SkipUnknownProperty(ref reader);
+                    break;
             }
         }
 
@@ -112,5 +108,43 @@ internal sealed class SNSWrapperReader : IWrapperReader
 
         var metadata = new MessageMetadata { SNSMetadata = snsMetadata };
         return (innerBodyUtf8, metadata);
+    }
+
+    private static PropertyType IdentifyProperty(ref Utf8JsonReader reader)
+    {
+        if (reader.ValueTextEquals(s_message)) return PropertyType.Message;
+        if (reader.ValueTextEquals(s_messageId)) return PropertyType.MessageId;
+        if (reader.ValueTextEquals(s_topicArn)) return PropertyType.TopicArn;
+        if (reader.ValueTextEquals(s_timestamp)) return PropertyType.Timestamp;
+        if (reader.ValueTextEquals(s_unsubscribeUrl)) return PropertyType.UnsubscribeUrl;
+        if (reader.ValueTextEquals(s_subject)) return PropertyType.Subject;
+        if (reader.ValueTextEquals(s_messageAttributes)) return PropertyType.MessageAttributes;
+
+        return PropertyType.Unknown;
+    }
+
+    private static ReadOnlyMemory<byte> ReadMessage(ref Utf8JsonReader reader, ArrayPoolManager poolManager)
+    {
+        reader.Read();
+        // CopyString decodes JSON-escaped UTF-8 directly into a byte buffer,
+        // avoiding the intermediate string allocation from GetString().
+        int maxBytes = reader.ValueSpan.Length; // un-escaped is always <= escaped length
+        byte[] buffer = poolManager.Rent(maxBytes);
+        int written = reader.CopyString(buffer);
+        return buffer.AsMemory(0, written);
+    }
+
+    private static void ReadTimestamp(ref Utf8JsonReader reader, SNSMetadata metadata)
+    {
+        reader.Read();
+        metadata.Timestamp = reader.GetDateTimeOffset();
+    }
+
+    private static void ReadMessageAttributes(ref Utf8JsonReader reader, SNSMetadata metadata)
+    {
+        reader.Read();
+        metadata.MessageAttributes = JsonSerializer.Deserialize(
+            ref reader,
+            MessagingJsonSerializerContext.Default.DictionarySNSMessageAttributeValue);
     }
 }
