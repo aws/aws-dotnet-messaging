@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace AWS.Messaging.Configuration;
 
@@ -51,27 +52,39 @@ public class MessageBusBuilder : IMessageBusBuilder
     }
 
     /// <inheritdoc/>
-    public IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null)
+    public IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null, Action<TMessage, SQSOptions>? configureOptions = null)
     {
-        return AddSQSPublisher(typeof(TMessage), queueUrl, messageTypeIdentifier);
+        Action<object, object>? options = null;
+        if (configureOptions != null)
+        {
+            options = (message, sqsOptions) => configureOptions.Invoke((TMessage)message, (SQSOptions)sqsOptions);
+        }
+
+        return AddSQSPublisher(typeof(TMessage), queueUrl, messageTypeIdentifier, options);
     }
 
-    private IMessageBusBuilder AddSQSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? queueUrl, string? messageTypeIdentifier = null)
+    private IMessageBusBuilder AddSQSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? queueUrl, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
     {
         var sqsPublisherConfiguration = new SQSPublisherConfiguration(queueUrl);
-        return AddPublisher(messageType, sqsPublisherConfiguration, PublisherTargetType.SQS_PUBLISHER, messageTypeIdentifier);
+        return AddPublisher(messageType, sqsPublisherConfiguration, PublisherTargetType.SQS_PUBLISHER, messageTypeIdentifier, configureOptions);
     }
 
     /// <inheritdoc/>
-    public IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null)
+    public IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null, Action<TMessage, SNSOptions>? configureOptions = null)
     {
-        return AddSNSPublisher(typeof(TMessage), topicUrl, messageTypeIdentifier);
+        Action<object, object>? options = null;
+        if (configureOptions != null)
+        {
+            options = (message, snsOptions) => configureOptions.Invoke((TMessage)message, (SNSOptions)snsOptions);
+        }
+
+        return AddSNSPublisher(typeof(TMessage), topicUrl, messageTypeIdentifier, options);
     }
 
-    private IMessageBusBuilder AddSNSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? topicUrl, string? messageTypeIdentifier = null)
+    private IMessageBusBuilder AddSNSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? topicUrl, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
     {
         var snsPublisherConfiguration = new SNSPublisherConfiguration(topicUrl);
-        return AddPublisher(messageType, snsPublisherConfiguration, PublisherTargetType.SNS_PUBLISHER, messageTypeIdentifier);
+        return AddPublisher(messageType, snsPublisherConfiguration, PublisherTargetType.SNS_PUBLISHER, messageTypeIdentifier, configureOptions);
     }
 
     /// <inheritdoc/>
@@ -89,9 +102,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         return AddPublisher(messageType, eventBridgePublisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER, messageTypeIdentifier);
     }
 
-    private IMessageBusBuilder AddPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, IMessagePublisherConfiguration publisherConfiguration, string publisherType, string? messageTypeIdentifier = null)
+    private IMessageBusBuilder AddPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, IMessagePublisherConfiguration publisherConfiguration, string publisherType, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
     {
-        var publisherMapping = new PublisherMapping(messageType, publisherConfiguration, publisherType, messageTypeIdentifier);
+        var publisherMapping = new PublisherMapping(messageType, publisherConfiguration, publisherType, messageTypeIdentifier, configureOptions);
         _messageConfiguration.PublisherMappings.Add(publisherMapping);
         return this;
     }

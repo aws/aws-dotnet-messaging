@@ -61,7 +61,6 @@ public class MessagePublisherTests
             Source = new Uri("/aws/messaging/unittest", UriKind.Relative)
         }));
 
-
         _chatMessage = new ChatMessage
         {
             MessageDescription = "Test Description"
@@ -97,6 +96,48 @@ public class MessagePublisherTests
                     It.IsAny<CancellationToken>()),
             Times.Exactly(1));
         Assert.Equal("MessageId", result.MessageId);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_UserConfiguredOptions()
+    {
+        var configureOptionsCalled = false; 
+        var serviceProvider = SetupSQSPublisherDIServices(configureOptions: (message, options) =>
+        {
+            options.DelaySeconds = 10;
+            options.MessageDeduplicationId = "deduplication-id";
+            options.MessageGroupId = "group-id";
+            configureOptionsCalled = true;
+        });
+
+        var messagePublisher = new MessageRoutingPublisher(
+            serviceProvider,
+            _messageConfiguration.Object,
+            _messagePublisherLogger.Object,
+            new DefaultTelemetryFactory(serviceProvider)
+        );
+        _sqsClient.Setup(x =>
+            x.SendMessageAsync(
+                It.Is<SendMessageRequest>(request =>
+                    request.QueueUrl.Equals("endpoint")),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageResponse()
+                {
+                    MessageId = "MessageId"
+                });
+
+        var result = await messagePublisher.PublishAsync(_chatMessage);
+
+        _sqsClient.Verify(x =>
+                x.SendMessageAsync(
+                    It.Is<SendMessageRequest>(request =>
+                        request.QueueUrl.Equals("endpoint")
+                        && request.DelaySeconds == 10
+                        && request.MessageDeduplicationId == "deduplication-id"
+                        && request.MessageGroupId == "group-id"),
+                    It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+        Assert.Equal("MessageId", result.MessageId);
+        Assert.True(configureOptionsCalled, "Expected user configured options to be applied, but configureOptions was not called.");
     }
 
     [Fact]
@@ -294,10 +335,11 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidMessageException>(() => messagePublisher.PublishAsync<ChatMessage?>(null));
     }
 
-    private IServiceProvider SetupSQSPublisherDIServices(string queueUrl = "endpoint")
+    private IServiceProvider SetupSQSPublisherDIServices(string queueUrl = "endpoint", Action<ChatMessage, SQSOptions>? configureOptions = null)
     {
+        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (SQSOptions)options) : null;
         var publisherConfiguration = new SQSPublisherConfiguration(queueUrl);
-        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SQS_PUBLISHER);
+        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SQS_PUBLISHER, configureOptions: configureOptionsAction);
 
         _messageConfiguration.Setup(x => x.GetPublisherMapping(typeof(ChatMessage))).Returns(publisherMapping);
 
@@ -424,10 +466,11 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidPublisherEndpointException>(() => messagePublisher.SendAsync(_chatMessage, new SQSOptions()));
     }
 
-    private IServiceProvider SetupSNSPublisherDIServices(string topicArn = "endpoint")
+    private IServiceProvider SetupSNSPublisherDIServices(string topicArn = "endpoint", Action<ChatMessage, SNSOptions>? configureOptions = null)
     {
+        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (SNSOptions)options) : null;
         var publisherConfiguration = new SNSPublisherConfiguration(topicArn);
-        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SNS_PUBLISHER);
+        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SNS_PUBLISHER, configureOptions: configureOptionsAction);
 
         _messageConfiguration.Setup(x => x.GetPublisherMapping(typeof(ChatMessage))).Returns(publisherMapping);
 
@@ -480,6 +523,44 @@ public class MessagePublisherTests
                     It.IsAny<CancellationToken>()),
             Times.Exactly(1));
         Assert.Equal("MessageId", publishResult.MessageId);
+    }
+
+    [Fact]
+    public async Task SNSPublisher_UserConfiguredOptions()
+    {
+        var configureOptionsCalled = false;
+        var serviceProvider = SetupSNSPublisherDIServices(configureOptions: (message, options) =>
+        {
+            options.MessageDeduplicationId = "deduplication-id";
+            options.MessageGroupId = "group-id";
+            configureOptionsCalled = true;
+        });
+
+        var messagePublisher = new MessageRoutingPublisher(
+            serviceProvider,
+            _messageConfiguration.Object,
+            _messagePublisherLogger.Object,
+            new DefaultTelemetryFactory(serviceProvider)
+        );
+        _snsClient.Setup(x => x.PublishAsync(It.Is<PublishRequest>(request =>
+                request.TopicArn.Equals("endpoint")),
+            It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
+        {
+            MessageId = "MessageId"
+        });
+
+        var publishResult = await messagePublisher.PublishAsync(_chatMessage);
+
+        _snsClient.Verify(x =>
+                x.PublishAsync(
+                    It.Is<PublishRequest>(request =>
+                        request.TopicArn.Equals("endpoint")
+                        && request.MessageDeduplicationId == "deduplication-id"
+                        && request.MessageGroupId == "group-id"),
+                    It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+        Assert.Equal("MessageId", publishResult.MessageId);
+        Assert.True(configureOptionsCalled, "Expected user configured options to be applied, but configureOptions was not called.");
     }
 
     [Fact]

@@ -51,6 +51,29 @@ builder.Services.AddAWSMessageBus(builder =>
 
 Once you have registered the framework during startup, inject the generic `IMessagePublisher` into your code. Call its `PublishAsync` method to publish any of the message types that were configured above. The generic publisher will determine the destination to route the message to based on its type.
 
+When registering SQS and SNS publishers, you can also provide an optional `configureOptions` action to `AddSQSPublisher` and `AddSNSPublisher`. This action is invoked for each message published through the generic `IMessagePublisher`, allowing you to populate options for the configured AWS service using values from that message. It can also be used to override defaults configured for that service, so it should be used with care. For example, if a message is sent to an SQS FIFO queue and the message group ID or deduplication ID can be derived from the message itself, those values can be set for that message while still publishing with `IMessagePublisher`.
+
+```csharp
+builder.Services.AddAWSMessageBus(builder =>
+{
+    builder.AddSQSPublisher<TransactionInfo>(
+        "https://sqs.us-west-2.amazonaws.com/012345678910/MyFifoQueue.fifo",
+        configureOptions: (message, options) =>
+        {
+            options.MessageGroupId = message.TransactionId;
+            options.MessageDeduplicationId = message.TransactionId;
+        });
+
+    builder.AddSNSPublisher<BidInfo>(
+        "arn:aws:sns:us-west-2:012345678910:MyFifoTopic.fifo",
+        configureOptions: (message, options) =>
+        {
+            options.MessageGroupId = message.BidId;
+            options.MessageDeduplicationId = message.BidId;
+        });
+});
+```
+
 In the following example, an ASP.NET MVC controller receives both `ChatMessage` messages and `OrderInfo` events from users, and then publishes them to SQS and SNS respectively. Both message types can be published using the generic publisher that was configured above.
 
 ```csharp

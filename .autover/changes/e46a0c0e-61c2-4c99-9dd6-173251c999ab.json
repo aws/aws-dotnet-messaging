@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Added per-message SQS and SNS publish option configuration for IMessagePublisher, including FIFO support."
+      ]
+    }
+  ]
+}

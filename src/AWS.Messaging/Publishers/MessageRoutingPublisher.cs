@@ -49,10 +49,16 @@ internal class MessageRoutingPublisher : IMessagePublisher
         }.ToFrozenDictionary();
 
     /// <summary>
-    /// This dictionary serves as a method to cache created instances of <see cref="ICommandPublisher"/>,
+    /// This dictionary serves as a method to cache created instances of <see cref="ISQSPublisher"/>,
     /// to avoid having to create a new instance any time a message is sent.
     /// </summary>
-    private readonly ConcurrentDictionary<Type, ICommandPublisher> _commandPublisherInstances = new();
+    private readonly ConcurrentDictionary<Type, ISQSPublisher> _sqsPublisherInstances = new();
+
+    /// <summary>
+    /// This dictionary serves as a method to cache created instances of <see cref="ISNSPublisher"/>,
+    /// to avoid having to create a new instance any time a message is published.
+    /// </summary>
+    private readonly ConcurrentDictionary<Type, ISNSPublisher> _snsPublisherInstances = new();
 
     /// <summary>
     /// This dictionary serves as a method to cache created instances of <see cref="IEventPublisher"/>,
@@ -88,10 +94,29 @@ internal class MessageRoutingPublisher : IMessagePublisher
 
                 if (s_publisherTypeMapping.TryGetValue(mapping.PublishTargetType, out var publisherType))
                 {
-                    if (typeof(ICommandPublisher).IsAssignableFrom(publisherType))
+                    if (typeof(ISQSPublisher).IsAssignableFrom(publisherType))
                     {
-                        var publisher = _commandPublisherInstances.GetOrAdd(publisherType, _ => (ICommandPublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
-                        return await publisher.SendAsync(message, token);
+                        SQSOptions? options = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            options = new SQSOptions();
+                            mapping.ConfigureOptions?.Invoke(message!, options);
+                        }
+
+                        var publisher = _sqsPublisherInstances.GetOrAdd(publisherType, _ => (ISQSPublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
+                        return await publisher.SendAsync(message, options, token);
+                    }
+                    else if (typeof(ISNSPublisher).IsAssignableFrom(publisherType))
+                    {
+                        SNSOptions? options = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            options = new SNSOptions();
+                            mapping.ConfigureOptions?.Invoke(message!, options);
+                        }
+
+                        var publisher = _snsPublisherInstances.GetOrAdd(publisherType, _ => (ISNSPublisher)ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
+                        return await publisher.PublishAsync(message, options, token);
                     }
                     else if (typeof(IEventPublisher).IsAssignableFrom(publisherType))
                     {

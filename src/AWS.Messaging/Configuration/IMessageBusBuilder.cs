@@ -24,7 +24,8 @@ public interface IMessageBusBuilder
     /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
     /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null);
+    /// <param name="configureOptions">An optional action to configure the SQS options per message on publish.</param>
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null, Action<TMessage, SQSOptions>? configureOptions = null);
 
     /// <summary>
     /// Adds an SNS Publisher to the framework which will handle publishing
@@ -33,7 +34,8 @@ public interface IMessageBusBuilder
     /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
     /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null);
+    /// <param name="configureOptions">An optional action to configure the SNS options per message on publish.</param>
+    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null, Action<TMessage, SNSOptions>? configureOptions = null);
 
     /// <summary>
     /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
