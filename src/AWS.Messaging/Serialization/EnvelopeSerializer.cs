@@ -5,8 +5,6 @@ using System.Buffers;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
-using System.Collections.Frozen;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
@@ -44,16 +42,6 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
     private readonly IMessageSerializerUtf8JsonReader? _messageSerializerUtf8JsonReader;
-    private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
-
-    // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
-    // can be in any order since they check for different, mutually exclusive properties
-    private static readonly IMessageParser[] _parsers = new IMessageParser[]
-    {
-        new SNSMessageParser(), // Checks for SNS-specific properties (Type, TopicArn)
-        new EventBridgeMessageParser(), // Checks for EventBridge properties (detail-type, detail)
-        new SQSMessageParser() // Fallback parser - must be last
-    };
 
     private readonly IMessageTypeClassifier _classifier;
     private readonly ISQSWrapperReader _sqsReader;
@@ -79,7 +67,6 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
         _messageSerializerUtf8JsonReader = messageSerializer as IMessageSerializerUtf8JsonReader;
 
-        _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
         _serviceProvider = serviceProvider;
         _classifier = classifier;
         _sqsReader = sqsReader;
@@ -336,7 +323,6 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         "data"
     }.ToFrozenSet();
 
-    private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
     private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(ReadOnlySpan<byte> utf8Envelope)
     {
         var reader = new Utf8JsonReader(utf8Envelope);

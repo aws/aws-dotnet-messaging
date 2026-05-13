@@ -431,8 +431,9 @@ public class MessageBusBuilder : IMessageBusBuilder
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
 
         // Wrapper readers (order is irrelevant — classification is bitmap-based)
-        _serviceCollection.TryAddSingleton<IWrapperReader, SNSWrapperReader>();
-        _serviceCollection.TryAddSingleton<IWrapperReader, EventBridgeWrapperReader>();
+        // Use TryAddEnumerable to ensure multiple implementations of IWrapperReader are registered
+        _serviceCollection.TryAddEnumerable(ServiceDescriptor.Singleton<IWrapperReader, SNSWrapperReader>());
+        _serviceCollection.TryAddEnumerable(ServiceDescriptor.Singleton<IWrapperReader, EventBridgeWrapperReader>());
         _serviceCollection.TryAddSingleton<ISQSWrapperReader, SQSWrapperReader>();
         _serviceCollection.TryAddSingleton<IMessageTypeClassifier, MessageTypeClassifier>();
 
