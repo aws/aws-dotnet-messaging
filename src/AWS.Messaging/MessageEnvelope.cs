@@ -68,6 +68,7 @@ public abstract class MessageEnvelope
     /// Internal helper to set metadata directly without triggering lazy initialization.
     /// Used by EnvelopeSerializer to avoid allocating empty dictionaries.
     /// </summary>
+    /// <param name="metadata">The metadata dictionary to assign.</param>
     internal void SetMetadataInternal(Dictionary<string, JsonElement> metadata)
     {
         _metadata = metadata;

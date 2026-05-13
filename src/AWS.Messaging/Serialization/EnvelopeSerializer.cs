@@ -378,7 +378,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             else if (reader.ValueTextEquals("datacontenttype"u8))
             {
                 reader.Read();
-                dataContentType = reader.ValueTextEquals("application/json"u8)
+                dataContentType = reader.TokenType != JsonTokenType.Null && reader.ValueTextEquals("application/json"u8)
                     ? CloudEventConstants.ApplicationJson
                     : reader.GetString();
             }
@@ -403,6 +403,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 var propName = reader.GetString()!;
                 reader.Read();
                 using var subDoc = JsonDocument.ParseValue(ref reader);
+                // Lazy init with capacity hint to reduce reallocations (most messages have 0-4 extension attributes)
                 metadata ??= new Dictionary<string, JsonElement>(capacity: 4);
                 metadata[propName] = subDoc.RootElement.Clone();
             }

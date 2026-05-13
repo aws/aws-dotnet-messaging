@@ -100,17 +100,18 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
             else if (reader.ValueTextEquals(s_id))
             {
                 reader.Read();
-                id = reader.GetString();
+                // Only allocate string if value is not null
+                id = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_account))
             {
                 reader.Read();
-                account = reader.GetString();
+                account = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_region))
             {
                 reader.Read();
-                region = reader.GetString();
+                region = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_resources))
             {
