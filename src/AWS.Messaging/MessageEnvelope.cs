@@ -50,13 +50,28 @@ public abstract class MessageEnvelope
     [JsonPropertyName("datacontenttype")]
     public string? DataContentType { get; set; }
 
+    private Dictionary<string, JsonElement>? _metadata;
+
     /// <summary>
     /// This stores different metadata that is not modeled as a top-level property in MessageEnvelope class.
     /// These entries will also be serialized as top-level properties when sending the message, which
     /// can be used for CloudEvents Extension Attributes.
     /// </summary>
     [JsonExtensionData]
-    public Dictionary<string, JsonElement> Metadata { get; set; } = new Dictionary<string, JsonElement>();
+    public Dictionary<string, JsonElement> Metadata
+    {
+        get => _metadata ??= new Dictionary<string, JsonElement>();
+        set => _metadata = value;
+    }
+
+    /// <summary>
+    /// Internal helper to set metadata directly without triggering lazy initialization.
+    /// Used by EnvelopeSerializer to avoid allocating empty dictionaries.
+    /// </summary>
+    internal void SetMetadataInternal(Dictionary<string, JsonElement> metadata)
+    {
+        _metadata = metadata;
+    }
 
     /// <summary>
     /// Stores metadata related to Amazon SQS.

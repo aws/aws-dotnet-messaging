@@ -4,6 +4,7 @@
 using System;
 using System.Text;
 using System.Text.Json;
+using AWS.Messaging.Serialization;
 using AWS.Messaging.Serialization.Parsers;
 using Xunit;
 

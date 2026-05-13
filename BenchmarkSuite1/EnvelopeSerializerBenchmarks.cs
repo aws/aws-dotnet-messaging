@@ -108,21 +108,21 @@ public class EnvelopeSerializerBenchmarks
     }
 
     [Benchmark]
-    public ConvertToEnvelopeResult Deserialize_Envelope()
+    public async ValueTask<ConvertToEnvelopeResult> Deserialize_Envelope()
     {
-        return _envelopeSerializer.ConvertToEnvelopeAsync(_sqsMessage).GetAwaiter().GetResult();
+        return await _envelopeSerializer.ConvertToEnvelopeAsync(_sqsMessage);
     }
 
     [Benchmark]
-    public ConvertToEnvelopeResult Deserialize_SNS_Wrapped()
+    public async ValueTask<ConvertToEnvelopeResult> Deserialize_SNS_Wrapped()
     {
-        return _envelopeSerializer.ConvertToEnvelopeAsync(_snsMessage).GetAwaiter().GetResult();
+        return await _envelopeSerializer.ConvertToEnvelopeAsync(_snsMessage);
     }
 
     [Benchmark]
-    public ConvertToEnvelopeResult Deserialize_EventBridge_Wrapped()
+    public async ValueTask<ConvertToEnvelopeResult> Deserialize_EventBridge_Wrapped()
     {
-        return _envelopeSerializer.ConvertToEnvelopeAsync(_eventBridgeMessage).GetAwaiter().GetResult();
+        return await _envelopeSerializer.ConvertToEnvelopeAsync(_eventBridgeMessage);
     }
 
     // --- Payload factories ---

@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Amazon.SQS.Model;
+using AWS.Messaging.Serialization;
 using AWS.Messaging.Serialization.Parsers;
 using Xunit;
 

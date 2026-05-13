@@ -33,7 +33,8 @@ internal sealed class SNSWrapperReader : IWrapperReader
     /// <inheritdoc/>
     public bool Validate(in WrapperClassificationResult result)
     {
-        return string.Equals(result.TypeValue, "Notification", StringComparison.Ordinal);
+        // Use interned constant for comparison
+        return string.Equals(result.TypeValue, CloudEventConstants.SnsNotification, StringComparison.Ordinal);
     }
 
     /// <inheritdoc/>
@@ -65,12 +66,13 @@ internal sealed class SNSWrapperReader : IWrapperReader
             else if (reader.ValueTextEquals(s_messageId))
             {
                 reader.Read();
-                snsMetadata.MessageId = reader.GetString();
+                // Only allocate string if value is not null
+                snsMetadata.MessageId = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_topicArn))
             {
                 reader.Read();
-                snsMetadata.TopicArn = reader.GetString();
+                snsMetadata.TopicArn = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_timestamp))
             {
@@ -80,12 +82,12 @@ internal sealed class SNSWrapperReader : IWrapperReader
             else if (reader.ValueTextEquals(s_unsubscribeUrl))
             {
                 reader.Read();
-                snsMetadata.UnsubscribeURL = reader.GetString();
+                snsMetadata.UnsubscribeURL = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_subject))
             {
                 reader.Read();
-                snsMetadata.Subject = reader.GetString();
+                snsMetadata.Subject = reader.TokenType == JsonTokenType.Null ? null : reader.GetString();
             }
             else if (reader.ValueTextEquals(s_messageAttributes))
             {

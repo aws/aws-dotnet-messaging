@@ -285,6 +285,10 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             return true;
         }
 
+        // Fast path: exact match with interned constant (most common case)
+        if (ReferenceEquals(dataContentType, CloudEventConstants.ApplicationJson))
+            return true;
+
         ReadOnlySpan<char> contentType = dataContentType.AsSpan().Trim();
 
         // Remove parameters (anything after ';')
@@ -362,7 +366,9 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             else if (reader.ValueTextEquals("specversion"u8))
             {
                 reader.Read();
-                specVersion = reader.GetString();
+                specVersion = reader.ValueTextEquals("1.0"u8)
+                    ? CloudEventConstants.SpecVersion1_0
+                    : reader.GetString();
             }
             else if (reader.ValueTextEquals("time"u8))
             {
@@ -372,7 +378,9 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             else if (reader.ValueTextEquals("datacontenttype"u8))
             {
                 reader.Read();
-                dataContentType = reader.GetString();
+                dataContentType = reader.ValueTextEquals("application/json"u8)
+                    ? CloudEventConstants.ApplicationJson
+                    : reader.GetString();
             }
             else if (reader.ValueTextEquals("data"u8))
             {
@@ -395,7 +403,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
                 var propName = reader.GetString()!;
                 reader.Read();
                 using var subDoc = JsonDocument.ParseValue(ref reader);
-                metadata ??= new Dictionary<string, JsonElement>();
+                metadata ??= new Dictionary<string, JsonElement>(capacity: 4);
                 metadata[propName] = subDoc.RootElement.Clone();
             }
         }
@@ -419,8 +427,8 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
         if (metadata is not null)
         {
-            foreach (var kvp in metadata)
-                envelope.Metadata[kvp.Key] = kvp.Value;
+            // Use internal helper to avoid triggering lazy initialization of empty dictionary
+            envelope.SetMetadataInternal(metadata);
         }
 
         // Deserialize the payload
@@ -480,10 +488,10 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     {
         // Convert to UTF-8 once — this buffer is used by the classifier and wrapper readers,
         // and for the SQS path it IS the envelope bytes fed to DeserializeEnvelope.
-        var bodyLength = Encoding.UTF8.GetByteCount(sqsMessage.Body);
-        byte[] rented = ArrayPool<byte>.Shared.Rent(bodyLength);
-        Encoding.UTF8.GetBytes(sqsMessage.Body, rented.AsSpan(0, bodyLength));
-        var utf8Body = rented.AsMemory(0, bodyLength);
+        // Use GetMaxByteCount to avoid double-pass (GetByteCount + GetBytes)
+        byte[] rented = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(sqsMessage.Body.Length));
+        int actualBytes = Encoding.UTF8.GetBytes(sqsMessage.Body, rented);
+        var utf8Body = rented.AsMemory(0, actualBytes);
 
         var classification = _classifier.Classify(utf8Body.Span);
 
