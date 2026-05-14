@@ -75,6 +75,7 @@ public class OpenTelemetryTests
         services.AddSingleton<ITelemetryFactory, DefaultTelemetryFactory>();
         services.AddSingleton<ITelemetryProvider, OpenTelemetryProvider>();
         services.AddSingleton<ChatMessageHandler>();
+        services.AddSingleton<ISQSPublisher, SQSPublisher>();
 
         _serviceProvider = services.BuildServiceProvider();
 

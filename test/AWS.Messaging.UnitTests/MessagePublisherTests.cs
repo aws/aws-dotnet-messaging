@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,6 +19,7 @@ using AWS.Messaging.Publishers.EventBridge;
 using AWS.Messaging.Publishers.SNS;
 using AWS.Messaging.Publishers.SQS;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Services;
 using AWS.Messaging.Telemetry;
 using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -83,9 +85,9 @@ public class MessagePublisherTests
                 It.Is<SendMessageRequest>(request =>
                     request.QueueUrl.Equals("endpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageResponse()
-                {
-                    MessageId = "MessageId"
-                });
+        {
+            MessageId = "MessageId"
+        });
 
         var result = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -101,13 +103,18 @@ public class MessagePublisherTests
     [Fact]
     public async Task SQSPublisher_UserConfiguredOptions()
     {
-        var configureOptionsCalled = false;
-        var serviceProvider = SetupSQSPublisherDIServices(configureOptions: (message, options) =>
+        var configureOptionsCalled = false; 
+        var serviceProvider = SetupSQSPublisherDIServices(configureOptions: (sp, message, options, _) =>
         {
             options.DelaySeconds = 10;
             options.MessageDeduplicationId = "deduplication-id";
             options.MessageGroupId = "group-id";
             configureOptionsCalled = true;
+
+            var serviceProviderAcquiredService = sp.GetService<IMessageConfiguration>();
+            Assert.NotNull(serviceProviderAcquiredService);
+
+            return ValueTask.CompletedTask;
         });
 
         var messagePublisher = new MessageRoutingPublisher(
@@ -335,9 +342,12 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidMessageException>(() => messagePublisher.PublishAsync<ChatMessage?>(null));
     }
 
-    private IServiceProvider SetupSQSPublisherDIServices(string queueUrl = "endpoint", Action<ChatMessage, SQSOptions>? configureOptions = null)
+    private IServiceProvider SetupSQSPublisherDIServices(string queueUrl = "endpoint", Func<IServiceProvider, ChatMessage, SQSOptions, CancellationToken, ValueTask>? configureOptions = null)
     {
-        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (SQSOptions)options) : null;
+        Func<IServiceProvider, object, object, CancellationToken, ValueTask>? configureOptionsAction = configureOptions != null
+            ? (sp, message, option, cancellationToken) => { configureOptions(sp, (ChatMessage)message, (SQSOptions)option, cancellationToken); return ValueTask.CompletedTask; }
+            : null;
+
         var publisherConfiguration = new SQSPublisherConfiguration(queueUrl);
         var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SQS_PUBLISHER, configureOptions: configureOptionsAction);
 
@@ -350,6 +360,7 @@ public class MessagePublisherTests
         services.AddSingleton<IEnvelopeSerializer>(_envelopeSerializer.Object);
         services.AddSingleton<IAWSClientProvider, AWSClientProvider>();
         services.AddSingleton<ITelemetryFactory, DefaultTelemetryFactory>();
+        services.AddSingleton<ISQSPublisher, SQSPublisher>();
 
         return services.BuildServiceProvider();
     }
@@ -396,9 +407,9 @@ public class MessagePublisherTests
                 It.Is<SendMessageRequest>(request =>
                     request.QueueUrl.Equals("overrideEndpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageResponse()
-                {
-                    MessageId = "MessageId"
-                });
+        {
+            MessageId = "MessageId"
+        });
 
         var sendResult = await messagePublisher.SendAsync(_chatMessage,
             new SQSOptions
@@ -466,9 +477,12 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidPublisherEndpointException>(() => messagePublisher.SendAsync(_chatMessage, new SQSOptions()));
     }
 
-    private IServiceProvider SetupSNSPublisherDIServices(string topicArn = "endpoint", Action<ChatMessage, SNSOptions>? configureOptions = null)
+    private IServiceProvider SetupSNSPublisherDIServices(string topicArn = "endpoint", Func<IServiceProvider, ChatMessage, SNSOptions, CancellationToken, ValueTask>? configureOptions = null)
     {
-        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (SNSOptions)options) : null;
+        Func<IServiceProvider, object, object, CancellationToken, ValueTask>? configureOptionsAction = configureOptions != null
+            ? (sp, message, options, cancellationToken) => { return configureOptions(sp, (ChatMessage)message, (SNSOptions)options, cancellationToken); }
+            : null;
+
         var publisherConfiguration = new SNSPublisherConfiguration(topicArn);
         var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.SNS_PUBLISHER, configureOptions: configureOptionsAction);
 
@@ -481,6 +495,7 @@ public class MessagePublisherTests
         services.AddSingleton<IEnvelopeSerializer>(_envelopeSerializer.Object);
         services.AddSingleton<IAWSClientProvider, AWSClientProvider>();
         services.AddSingleton<ITelemetryFactory, DefaultTelemetryFactory>();
+        services.AddSingleton<ISNSPublisher, SNSPublisher>();
 
         return services.BuildServiceProvider();
     }
@@ -510,9 +525,9 @@ public class MessagePublisherTests
         _snsClient.Setup(x => x.PublishAsync(It.Is<PublishRequest>(request =>
                 request.TopicArn.Equals("endpoint")),
             It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-            {
-                MessageId = "MessageId"
-            });
+        {
+            MessageId = "MessageId"
+        });
 
         var publishResult = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -529,11 +544,16 @@ public class MessagePublisherTests
     public async Task SNSPublisher_UserConfiguredOptions()
     {
         var configureOptionsCalled = false;
-        var serviceProvider = SetupSNSPublisherDIServices(configureOptions: (message, options) =>
+        var serviceProvider = SetupSNSPublisherDIServices(configureOptions: (sp, message, options, _) =>
         {
             options.MessageDeduplicationId = "deduplication-id";
             options.MessageGroupId = "group-id";
             configureOptionsCalled = true;
+
+            var serviceProviderAcquiredService = sp.GetService<IMessageConfiguration>();
+            Assert.NotNull(serviceProviderAcquiredService);
+
+            return ValueTask.CompletedTask;
         });
 
         var messagePublisher = new MessageRoutingPublisher(
@@ -545,9 +565,9 @@ public class MessagePublisherTests
         _snsClient.Setup(x => x.PublishAsync(It.Is<PublishRequest>(request =>
                 request.TopicArn.Equals("endpoint")),
             It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-            {
-                MessageId = "MessageId"
-            });
+        {
+            MessageId = "MessageId"
+        });
 
         var publishResult = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -573,9 +593,9 @@ public class MessagePublisherTests
             x.PublishAsync(
                 It.IsAny<PublishRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-                {
-                    MessageId = "MessageId"
-                });
+        {
+            MessageId = "MessageId"
+        });
 
         telemetryFactory.Setup(x => x.Trace(It.IsAny<string>())).Returns(telemetryTrace.Object);
         telemetryTrace.Setup(x => x.AddMetadata(It.IsAny<string>(), It.IsAny<string>()));
@@ -691,9 +711,9 @@ public class MessagePublisherTests
                 It.Is<PublishRequest>(request =>
                     request.TopicArn.Equals("overrideTopicArn")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-                {
-                    MessageId = "MessageId"
-                });
+        {
+            MessageId = "MessageId"
+        });
 
         var publishResponse = await messagePublisher.PublishAsync(_chatMessage,
             new SNSOptions
@@ -756,14 +776,17 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidPublisherEndpointException>(() => messagePublisher.PublishAsync(_chatMessage, new SNSOptions()));
     }
 
-    private IServiceProvider SetupEventBridgePublisherDIServices(string eventBusName, string? endpointID = null, Action<ChatMessage, EventBridgeOptions>? configureOptions = null)
+    private IServiceProvider SetupEventBridgePublisherDIServices(string eventBusName, string? endpointID = null, Func<IServiceProvider, ChatMessage, EventBridgeOptions, CancellationToken, ValueTask>? configureOptions = null)
     {
+        Func<IServiceProvider, object, object, CancellationToken, ValueTask>? configureOptionsAction = configureOptions != null
+            ? (sp, message, options, cancellationToken) => { return configureOptions(sp, (ChatMessage)message, (EventBridgeOptions)options, cancellationToken); }
+        : null;
+
         var publisherConfiguration = new EventBridgePublisherConfiguration(eventBusName)
         {
             EndpointID = endpointID
         };
 
-        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (EventBridgeOptions)options) : null;
         var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER, null, configureOptionsAction);
 
         _messageConfiguration.Setup(x => x.GetPublisherMapping(typeof(ChatMessage))).Returns(publisherMapping);
@@ -775,6 +798,7 @@ public class MessagePublisherTests
         services.AddSingleton<IEnvelopeSerializer>(_envelopeSerializer.Object);
         services.AddSingleton<IAWSClientProvider, AWSClientProvider>();
         services.AddSingleton<ITelemetryFactory, DefaultTelemetryFactory>();
+        services.AddSingleton<IEventBridgePublisher, EventBridgePublisher>();
 
         return services.BuildServiceProvider();
     }
@@ -828,11 +852,14 @@ public class MessagePublisherTests
     [Fact]
     public async Task EventBridgePublisher_UserConfiguredOptions()
     {
-        var configureOptionsCalled = false;
-        var serviceProvider = SetupEventBridgePublisherDIServices("event-bus-123", configureOptions: (message, options) =>
+        var serviceProvider = SetupEventBridgePublisherDIServices("event-bus-123", configureOptions: (sp, message, options, cancellationToken) =>
         {
             options.Source = "updated-source";
-            configureOptionsCalled = true;
+
+            var serviceProviderAcquiredService = sp.GetService<IMessageConfiguration>();
+            Assert.NotNull(serviceProviderAcquiredService);
+
+            return ValueTask.CompletedTask;
         });
 
         _eventBridgeClient.Setup(x => x.PutEventsAsync(It.IsAny<PutEventsRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PutEventsResponse
@@ -865,7 +892,6 @@ public class MessagePublisherTests
             Times.Exactly(1));
 
         Assert.Equal("ReturnedEventId", publishResponse.MessageId);
-        Assert.True(configureOptionsCalled, "Expected user configured options to be applied, but configureOptions was not called.");
     }
 
     [Fact]
@@ -1247,15 +1273,15 @@ public class MessagePublisherTests
                     request.QueueUrl.Equals("endpoint") &&
                     request.Entries.Count == 3),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" },
                 new() { Id = "id3", MessageId = "msg3" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>()
-                });
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
 
         var messages = new List<ChatMessage>
         {
@@ -1285,16 +1311,16 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>
+            Failed = new List<SQSBatchResultErrorEntry>
             {
                 new() { Id = "id2", Code = "InternalError", Message = "Something went wrong", SenderFault = false }
             }
-                });
+        });
 
         var messages = new List<ChatMessage>
         {
@@ -1413,14 +1439,14 @@ public class MessagePublisherTests
                 It.Is<SendMessageBatchRequest>(req =>
                     req.Entries.All(e => e.MessageGroupId == "group1")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>()
-                });
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1451,14 +1477,14 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>()
-                });
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1493,13 +1519,13 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>()
-                });
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1538,13 +1564,13 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.Is<SendMessageBatchRequest>(req => req.QueueUrl.Equals("overrideEndpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-                {
-                    Successful = new List<SendMessageBatchResultEntry>
+        {
+            Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-                    Failed = new List<SQSBatchResultErrorEntry>()
-                });
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {

@@ -58,7 +58,7 @@ builder.Services.AddAWSMessageBus(builder =>
 {
     builder.AddSQSPublisher<TransactionInfo>(
         "https://sqs.us-west-2.amazonaws.com/012345678910/MyFifoQueue.fifo",
-        configureOptions: (message, options) =>
+        configureOptions: (serviceProvider, message, options) =>
         {
             options.MessageGroupId = message.TransactionId;
             options.MessageDeduplicationId = message.TransactionId;
@@ -66,9 +66,12 @@ builder.Services.AddAWSMessageBus(builder =>
 
     builder.AddSNSPublisher<BidInfo>(
         "arn:aws:sns:us-west-2:012345678910:MyFifoTopic.fifo",
-        configureOptions: (message, options) =>
+        configureOptions: async (serviceProvider, message, options, cancellationToken) =>
         {
-            options.MessageGroupId = message.BidId;
+            var sharedState = serviceProvider.GetRequiredService<SharedState>();
+            var groupId = await sharedState.GetGroupId(message, cancellationToken);
+
+            options.MessageGroupId = groupId;
             options.MessageDeduplicationId = message.BidId;
         });
 });
@@ -559,7 +562,7 @@ In the following example the framework will check every 1 second for messages th
 {
     options.VisibilityTimeout = 30;
     options.VisibilityTimeoutExtensionThreshold = 5;
-    VisibilityTimeoutExtensionHeartbeatInterval = 1;
+    options.VisibilityTimeoutExtensionHeartbeatInterval = 1;
 });
 ```
 
