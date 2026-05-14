@@ -64,7 +64,7 @@ internal class MessageRoutingPublisher : IMessagePublisher
     /// This dictionary serves as a method to cache created instances of <see cref="IEventPublisher"/>,
     /// to avoid having to create a new instance any time a message is published.
     /// </summary>
-    private readonly ConcurrentDictionary<Type, IEventPublisher> _eventPublisherInstances = new();
+    private readonly ConcurrentDictionary<Type, IEventBridgePublisher> _eventPublisherInstances = new();
 
     /// <summary>
     /// Publishes a user-defined message to an AWS service based on the
@@ -118,17 +118,24 @@ internal class MessageRoutingPublisher : IMessagePublisher
                         var publisher = _snsPublisherInstances.GetOrAdd(publisherType, _ => (ISNSPublisher)ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
                         return await publisher.PublishAsync(message, options, token);
                     }
-                    else if (typeof(IEventPublisher).IsAssignableFrom(publisherType))
+                    else if (typeof(IEventBridgePublisher).IsAssignableFrom(publisherType))
                     {
-                        var publisher = _eventPublisherInstances.GetOrAdd(publisherType, _ => (IEventPublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
-                        return await publisher.PublishAsync(message, token);
+                        EventBridgeOptions? options = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            options = new EventBridgeOptions();
+                            mapping.ConfigureOptions?.Invoke(message!, options);
+                        }
+
+                        var publisher = _eventPublisherInstances.GetOrAdd(publisherType, _ => (IEventBridgePublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
+                        return await publisher.PublishAsync(message, options, token);
                     }
                     else
                     {
                         _logger.LogError("The message publisher corresponding to the type '{PublishTargetType}' is invalid " +
-                                         "and does not implement the interface '{EventInterfaceType}' or '{SNSInterfaceType}' or '{SQSInterfaceType}'.", mapping.PublishTargetType, typeof(IEventPublisher), typeof(ISNSPublisher), typeof(ISQSPublisher));
+                                         "and does not implement the interface '{EventInterfaceType}' or '{SNSInterfaceType}' or '{SQSInterfaceType}'.", mapping.PublishTargetType, typeof(IEventBridgePublisher), typeof(ISNSPublisher), typeof(ISQSPublisher));
                         throw new InvalidPublisherTypeException($"The message publisher corresponding to the type '{mapping.PublishTargetType}' is invalid " +
-                                                                $"and does not implement the interface '{typeof(IEventPublisher)}' or '{typeof(ISNSPublisher)}' or '{typeof(ISQSPublisher)}'.");
+                                                                $"and does not implement the interface '{typeof(IEventBridgePublisher)}' or '{typeof(ISNSPublisher)}' or '{typeof(ISQSPublisher)}'.");
                     }
                 }
                 else

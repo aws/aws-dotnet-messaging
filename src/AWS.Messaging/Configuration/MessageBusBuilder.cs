@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using Amazon.Extensions.NETCore.Setup;
 using AWS.Messaging.Configuration.Internal;
 using AWS.Messaging.Publishers;
 using AWS.Messaging.Publishers.EventBridge;
@@ -54,13 +55,13 @@ public class MessageBusBuilder : IMessageBusBuilder
     /// <inheritdoc/>
     public IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null, Action<TMessage, SQSOptions>? configureOptions = null)
     {
-        Action<object, object>? options = null;
+        Action<object, object>? messageOptions = null;
         if (configureOptions != null)
         {
-            options = (message, sqsOptions) => configureOptions.Invoke((TMessage)message, (SQSOptions)sqsOptions);
+            messageOptions = (message, sqsOptions) => configureOptions.Invoke((TMessage)message, (SQSOptions)sqsOptions);
         }
 
-        return AddSQSPublisher(typeof(TMessage), queueUrl, messageTypeIdentifier, options);
+        return AddSQSPublisher(typeof(TMessage), queueUrl, messageTypeIdentifier, messageOptions);
     }
 
     private IMessageBusBuilder AddSQSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? queueUrl, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
@@ -72,13 +73,13 @@ public class MessageBusBuilder : IMessageBusBuilder
     /// <inheritdoc/>
     public IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null, Action<TMessage, SNSOptions>? configureOptions = null)
     {
-        Action<object, object>? options = null;
+        Action<object, object>? messageOptions = null;
         if (configureOptions != null)
         {
-            options = (message, snsOptions) => configureOptions.Invoke((TMessage)message, (SNSOptions)snsOptions);
+            messageOptions = (message, snsOptions) => configureOptions.Invoke((TMessage)message, (SNSOptions)snsOptions);
         }
 
-        return AddSNSPublisher(typeof(TMessage), topicUrl, messageTypeIdentifier, options);
+        return AddSNSPublisher(typeof(TMessage), topicUrl, messageTypeIdentifier, messageOptions);
     }
 
     private IMessageBusBuilder AddSNSPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? topicUrl, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
@@ -88,18 +89,24 @@ public class MessageBusBuilder : IMessageBusBuilder
     }
 
     /// <inheritdoc/>
-    public IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null)
+    public IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null, Action<TMessage, EventBridgeOptions>? configureOptions = null)
     {
-        return AddEventBridgePublisher(typeof(TMessage), eventBusName, messageTypeIdentifier, options);
+        Action<object, object>? messageOptions = null;
+        if (configureOptions != null)
+        {
+            messageOptions = (message, ebOptions) => configureOptions.Invoke((TMessage)message, (EventBridgeOptions)ebOptions);
+        }
+
+        return AddEventBridgePublisher(typeof(TMessage), eventBusName, messageTypeIdentifier, options, messageOptions);
     }
 
-    private IMessageBusBuilder AddEventBridgePublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null)
+    private IMessageBusBuilder AddEventBridgePublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null, Action<object, object>? configureOptions = null)
     {
         var eventBridgePublisherConfiguration = new EventBridgePublisherConfiguration(eventBusName)
         {
             EndpointID = options?.EndpointID
         };
-        return AddPublisher(messageType, eventBridgePublisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER, messageTypeIdentifier);
+        return AddPublisher(messageType, eventBridgePublisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER, messageTypeIdentifier, configureOptions);
     }
 
     private IMessageBusBuilder AddPublisher([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type messageType, IMessagePublisherConfiguration publisherConfiguration, string publisherType, string? messageTypeIdentifier = null, Action<object, object>? configureOptions = null)
@@ -441,7 +448,7 @@ public class MessageBusBuilder : IMessageBusBuilder
 
         _serviceCollection.TryAddSingleton(_messageConfiguration.PollingControlToken);
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
-        
+
         _serviceCollection.TryAddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
         _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
 

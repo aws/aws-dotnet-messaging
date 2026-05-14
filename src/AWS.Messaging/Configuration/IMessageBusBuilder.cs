@@ -24,7 +24,7 @@ public interface IMessageBusBuilder
     /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
     /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    /// <param name="configureOptions">An optional action to configure the SQS options per message on publish.</param>
+    /// <param name="configureOptions">An optional action to configure <see cref="SQSOptions"/> per message on publish.</param>
     IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null, Action<TMessage, SQSOptions>? configureOptions = null);
 
     /// <summary>
@@ -34,7 +34,7 @@ public interface IMessageBusBuilder
     /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
     /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    /// <param name="configureOptions">An optional action to configure the SNS options per message on publish.</param>
+    /// <param name="configureOptions">An optional action to configure <see cref="SNSOptions"/> per message on publish.</param>
     IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null, Action<TMessage, SNSOptions>? configureOptions = null);
 
     /// <summary>
@@ -45,7 +45,8 @@ public interface IMessageBusBuilder
     /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
     /// <param name="options">Contains additional properties that can be set while configuring an EventBridge publisher</param>
-    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null);
+    /// <param name="configureOptions">An optional action to configure <see cref="EventBridgeOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null, Action<TMessage, EventBridgeOptions>? configureOptions = null);
 
     /// <summary>
     /// Add a message handler for a given message type.

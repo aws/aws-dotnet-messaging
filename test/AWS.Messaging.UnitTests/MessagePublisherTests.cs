@@ -4,26 +4,26 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using AWS.Messaging.Configuration;
-using Microsoft.Extensions.Logging;
-using Xunit;
-using Moq;
-using AWS.Messaging.Publishers;
-using System.Threading.Tasks;
-using AWS.Messaging.UnitTests.Models;
-using Amazon.SQS;
-using AWS.Messaging.Serialization;
 using System.Threading;
-using Amazon.SQS.Model;
-using Amazon.SimpleNotificationService;
-using Amazon.SimpleNotificationService.Model;
+using System.Threading.Tasks;
 using Amazon.EventBridge;
 using Amazon.EventBridge.Model;
+using Amazon.SimpleNotificationService;
+using Amazon.SimpleNotificationService.Model;
+using Amazon.SQS;
+using Amazon.SQS.Model;
+using AWS.Messaging.Configuration;
+using AWS.Messaging.Publishers;
 using AWS.Messaging.Publishers.EventBridge;
-using AWS.Messaging.Telemetry;
-using Microsoft.Extensions.DependencyInjection;
-using AWS.Messaging.Publishers.SQS;
 using AWS.Messaging.Publishers.SNS;
+using AWS.Messaging.Publishers.SQS;
+using AWS.Messaging.Serialization;
+using AWS.Messaging.Telemetry;
+using AWS.Messaging.UnitTests.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Xunit;
 using SQSBatchResultErrorEntry = Amazon.SQS.Model.BatchResultErrorEntry;
 
 namespace AWS.Messaging.UnitTests;
@@ -83,9 +83,9 @@ public class MessagePublisherTests
                 It.Is<SendMessageRequest>(request =>
                     request.QueueUrl.Equals("endpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageResponse()
-        {
-            MessageId = "MessageId"
-        });
+                {
+                    MessageId = "MessageId"
+                });
 
         var result = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -101,7 +101,7 @@ public class MessagePublisherTests
     [Fact]
     public async Task SQSPublisher_UserConfiguredOptions()
     {
-        var configureOptionsCalled = false; 
+        var configureOptionsCalled = false;
         var serviceProvider = SetupSQSPublisherDIServices(configureOptions: (message, options) =>
         {
             options.DelaySeconds = 10;
@@ -396,9 +396,9 @@ public class MessagePublisherTests
                 It.Is<SendMessageRequest>(request =>
                     request.QueueUrl.Equals("overrideEndpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageResponse()
-        {
-            MessageId = "MessageId"
-        });
+                {
+                    MessageId = "MessageId"
+                });
 
         var sendResult = await messagePublisher.SendAsync(_chatMessage,
             new SQSOptions
@@ -510,9 +510,9 @@ public class MessagePublisherTests
         _snsClient.Setup(x => x.PublishAsync(It.Is<PublishRequest>(request =>
                 request.TopicArn.Equals("endpoint")),
             It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-        {
-            MessageId = "MessageId"
-        });
+            {
+                MessageId = "MessageId"
+            });
 
         var publishResult = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -545,9 +545,9 @@ public class MessagePublisherTests
         _snsClient.Setup(x => x.PublishAsync(It.Is<PublishRequest>(request =>
                 request.TopicArn.Equals("endpoint")),
             It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-        {
-            MessageId = "MessageId"
-        });
+            {
+                MessageId = "MessageId"
+            });
 
         var publishResult = await messagePublisher.PublishAsync(_chatMessage);
 
@@ -573,9 +573,9 @@ public class MessagePublisherTests
             x.PublishAsync(
                 It.IsAny<PublishRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-        {
-            MessageId = "MessageId"
-        });
+                {
+                    MessageId = "MessageId"
+                });
 
         telemetryFactory.Setup(x => x.Trace(It.IsAny<string>())).Returns(telemetryTrace.Object);
         telemetryTrace.Setup(x => x.AddMetadata(It.IsAny<string>(), It.IsAny<string>()));
@@ -691,9 +691,9 @@ public class MessagePublisherTests
                 It.Is<PublishRequest>(request =>
                     request.TopicArn.Equals("overrideTopicArn")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new PublishResponse()
-        {
-            MessageId = "MessageId"
-        });
+                {
+                    MessageId = "MessageId"
+                });
 
         var publishResponse = await messagePublisher.PublishAsync(_chatMessage,
             new SNSOptions
@@ -756,14 +756,15 @@ public class MessagePublisherTests
         await Assert.ThrowsAsync<InvalidPublisherEndpointException>(() => messagePublisher.PublishAsync(_chatMessage, new SNSOptions()));
     }
 
-    private IServiceProvider SetupEventBridgePublisherDIServices(string eventBusName, string? endpointID = null)
+    private IServiceProvider SetupEventBridgePublisherDIServices(string eventBusName, string? endpointID = null, Action<ChatMessage, EventBridgeOptions>? configureOptions = null)
     {
         var publisherConfiguration = new EventBridgePublisherConfiguration(eventBusName)
         {
             EndpointID = endpointID
         };
 
-        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER);
+        Action<object, object>? configureOptionsAction = configureOptions != null ? (message, options) => configureOptions((ChatMessage)message, (EventBridgeOptions)options) : null;
+        var publisherMapping = new PublisherMapping(typeof(ChatMessage), publisherConfiguration, PublisherTargetType.EVENTBRIDGE_PUBLISHER, null, configureOptionsAction);
 
         _messageConfiguration.Setup(x => x.GetPublisherMapping(typeof(ChatMessage))).Returns(publisherMapping);
 
@@ -822,6 +823,49 @@ public class MessagePublisherTests
             Times.Exactly(1));
 
         Assert.Equal("ReturnedEventId", publishResponse.MessageId);
+    }
+
+    [Fact]
+    public async Task EventBridgePublisher_UserConfiguredOptions()
+    {
+        var configureOptionsCalled = false;
+        var serviceProvider = SetupEventBridgePublisherDIServices("event-bus-123", configureOptions: (message, options) =>
+        {
+            options.Source = "updated-source";
+            configureOptionsCalled = true;
+        });
+
+        _eventBridgeClient.Setup(x => x.PutEventsAsync(It.IsAny<PutEventsRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PutEventsResponse
+        {
+            Entries = new List<PutEventsResultEntry>
+            {
+                new()
+                {
+                    EventId = "ReturnedEventId"
+                }
+            }
+        });
+
+        var messagePublisher = new MessageRoutingPublisher(
+            serviceProvider,
+            _messageConfiguration.Object,
+            _messagePublisherLogger.Object,
+            new DefaultTelemetryFactory(serviceProvider)
+        );
+
+        var publishResponse = await messagePublisher.PublishAsync(_chatMessage);
+
+        _eventBridgeClient.Verify(x =>
+                x.PutEventsAsync(
+                    It.Is<PutEventsRequest>(request =>
+                        request.Entries[0].EventBusName.Equals("event-bus-123") && string.IsNullOrEmpty(request.EndpointId)
+                                                                                && request.Entries[0].DetailType.Equals("AWS.Messaging.UnitTests.Models.ChatMessage")
+                                                                                && request.Entries[0].Source.Equals("updated-source")),
+                    It.IsAny<CancellationToken>()),
+            Times.Exactly(1));
+
+        Assert.Equal("ReturnedEventId", publishResponse.MessageId);
+        Assert.True(configureOptionsCalled, "Expected user configured options to be applied, but configureOptions was not called.");
     }
 
     [Fact]
@@ -1203,15 +1247,15 @@ public class MessagePublisherTests
                     request.QueueUrl.Equals("endpoint") &&
                     request.Entries.Count == 3),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" },
                 new() { Id = "id3", MessageId = "msg3" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>()
-        });
+                    Failed = new List<SQSBatchResultErrorEntry>()
+                });
 
         var messages = new List<ChatMessage>
         {
@@ -1241,16 +1285,16 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>
+                    Failed = new List<SQSBatchResultErrorEntry>
             {
                 new() { Id = "id2", Code = "InternalError", Message = "Something went wrong", SenderFault = false }
             }
-        });
+                });
 
         var messages = new List<ChatMessage>
         {
@@ -1369,14 +1413,14 @@ public class MessagePublisherTests
                 It.Is<SendMessageBatchRequest>(req =>
                     req.Entries.All(e => e.MessageGroupId == "group1")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>()
-        });
+                    Failed = new List<SQSBatchResultErrorEntry>()
+                });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1407,14 +1451,14 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" },
                 new() { Id = "id2", MessageId = "msg2" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>()
-        });
+                    Failed = new List<SQSBatchResultErrorEntry>()
+                });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1449,13 +1493,13 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.IsAny<SendMessageBatchRequest>(),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>()
-        });
+                    Failed = new List<SQSBatchResultErrorEntry>()
+                });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
@@ -1494,13 +1538,13 @@ public class MessagePublisherTests
             x.SendMessageBatchAsync(
                 It.Is<SendMessageBatchRequest>(req => req.QueueUrl.Equals("overrideEndpoint")),
                 It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
-        {
-            Successful = new List<SendMessageBatchResultEntry>
+                {
+                    Successful = new List<SendMessageBatchResultEntry>
             {
                 new() { Id = "id1", MessageId = "msg1" }
             },
-            Failed = new List<SQSBatchResultErrorEntry>()
-        });
+                    Failed = new List<SQSBatchResultErrorEntry>()
+                });
 
         var entries = new List<SQSBatchEntry<ChatMessage>>
         {
