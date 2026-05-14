@@ -12,6 +12,7 @@ using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
 using AWS.Messaging.Services;
+using Microsoft.Extensions.Time.Testing;
 using AWS.Messaging.UnitTests.MessageHandlers;
 using AWS.Messaging.UnitTests.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,9 +40,8 @@ public class EnvelopeSerializerTests
             builder.AddMessageSource("/aws/messaging");
         });
 
-        var mockDateTimeHandler = new Mock<IDateTimeHandler>();
-        mockDateTimeHandler.Setup(x => x.GetUtcNow()).Returns(_testdate);
-        _serviceCollection.Replace(new ServiceDescriptor(typeof(IDateTimeHandler), mockDateTimeHandler.Object));
+        var fakeTimeProvider = new FakeTimeProvider(_testdate);
+        _serviceCollection.Replace(new ServiceDescriptor(typeof(TimeProvider), fakeTimeProvider));
     }
 
     [Fact]
@@ -434,11 +434,10 @@ public class EnvelopeSerializerTests
         var logger = new Mock<ILogger<EnvelopeSerializer>>();
         var messageConfiguration = new MessageConfiguration { LogMessageContent = dataMessageLogging };
         var messageSerializer = new Mock<IMessageSerializer>();
-        var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, TimeProvider.System, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
         var messageEnvelope = new MessageEnvelope<AddressInfo>
         {
             Id = "123",
@@ -504,14 +503,13 @@ public class EnvelopeSerializerTests
         messageConfiguration.LogMessageContent = dataMessageLogging;
 
         var messageSerializer = new Mock<IMessageSerializer>();
-        var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
         var envelopeSerializer = new EnvelopeSerializer(
             logger.Object,
             messageConfiguration,
             messageSerializer.Object,
-            dateTimeHandler.Object,
+            TimeProvider.System,
             messageIdGenerator.Object,
             messageSourceHandler.Object,
             serviceProvider);
@@ -572,7 +570,6 @@ public class EnvelopeSerializerTests
         var logger = new Mock<ILogger<EnvelopeSerializer>>();
         var messageConfiguration = new MessageConfiguration { LogMessageContent = dataMessageLogging };
         var messageSerializer = new Mock<IMessageSerializer>();
-        var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
@@ -580,7 +577,7 @@ public class EnvelopeSerializerTests
             logger.Object,
             messageConfiguration,
             messageSerializer.Object,
-            dateTimeHandler.Object,
+            TimeProvider.System,
             messageIdGenerator.Object,
             messageSourceHandler.Object,
             serviceProvider);
@@ -756,10 +753,9 @@ public class EnvelopeSerializerTests
         var serviceProvider = services.BuildServiceProvider();
         var messageConfiguration = serviceProvider.GetRequiredService<IMessageConfiguration>();
         var messageSerializer = new Mock<IMessageSerializer>();
-        var dateTimeHandler = new Mock<IDateTimeHandler>();
         var messageIdGenerator = new Mock<IMessageIdGenerator>();
         var messageSourceHandler = new Mock<IMessageSourceHandler>();
-        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, dateTimeHandler.Object, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
+        var envelopeSerializer = new EnvelopeSerializer(logger.Object, messageConfiguration, messageSerializer.Object, TimeProvider.System, messageIdGenerator.Object, messageSourceHandler.Object, serviceProvider);
         var plainTextContent = "Hello, this is plain text content";
         var messageEnvelope = new MessageEnvelope<string>
         {

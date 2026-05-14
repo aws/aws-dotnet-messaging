@@ -33,7 +33,7 @@ namespace AWS.Messaging.UnitTests
             var mockSQSMessageCommunication = CreateMockSQSMessageCommunication();
             var mockHandlerInvoker = CreateMockHandlerInvoker(MessageProcessStatus.Success());
 
-            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration());
+            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration(), TimeProvider.System);
 
             var messsageEnvelope = new MessageEnvelope<ChatMessage> { Id = "1" };
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
@@ -66,7 +66,7 @@ namespace AWS.Messaging.UnitTests
             var mockSQSMessageCommunication = CreateMockSQSMessageCommunication();
             var mockHandlerInvoker = CreateMockHandlerInvoker(MessageProcessStatus.Failed());
 
-            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration());
+            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration(), TimeProvider.System);
 
             var messsageEnvelope = new MessageEnvelope<ChatMessage> { Id = "1" };
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
@@ -107,7 +107,7 @@ namespace AWS.Messaging.UnitTests
                 VisibilityTimeout = 2,
                 VisibilityTimeoutExtensionThreshold = 1,
                 VisibilityTimeoutExtensionHeartbeatInterval = 1
-            });
+            }, TimeProvider.System);
 
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
 
@@ -160,7 +160,7 @@ namespace AWS.Messaging.UnitTests
                 VisibilityTimeout = 2,
                 VisibilityTimeoutExtensionThreshold = 1,
                 VisibilityTimeoutExtensionHeartbeatInterval = 1
-            });
+            }, TimeProvider.System);
 
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
 
@@ -212,7 +212,7 @@ namespace AWS.Messaging.UnitTests
             var mockSQSMessageCommunication = CreateMockSQSMessageCommunication();
             var mockHandlerInvoker = CreateMockHandlerInvoker(MessageProcessStatus.Success(), TimeSpan.FromSeconds(1));
 
-            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration());
+            var manager = new DefaultMessageManager(mockSQSMessageCommunication.Object, mockHandlerInvoker.Object, new NullLogger<DefaultMessageManager>(), new MessageManagerConfiguration(), TimeProvider.System);
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
 
             var tasks = new List<Task>();
@@ -243,7 +243,7 @@ namespace AWS.Messaging.UnitTests
                 VisibilityTimeout = 2,
                 VisibilityTimeoutExtensionThreshold = 1,
                 VisibilityTimeoutExtensionHeartbeatInterval = 1
-            });
+            }, TimeProvider.System);
 
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
 
@@ -319,7 +319,7 @@ namespace AWS.Messaging.UnitTests
                 VisibilityTimeout = 5,
                 VisibilityTimeoutExtensionThreshold = 5,
                 VisibilityTimeoutExtensionHeartbeatInterval = 5
-            });
+            }, TimeProvider.System);
 
             var subscriberMapping = SubscriberMapping.Create<TransactionInfoHandler, TransactionInfo>();
 
@@ -357,7 +357,8 @@ namespace AWS.Messaging.UnitTests
                 mockSQSMessageCommunication.Object,
                 mockHandlerInvoker.Object,
                 new NullLogger<DefaultMessageManager>(),
-                new MessageManagerConfiguration());
+                new MessageManagerConfiguration(),
+                TimeProvider.System);
 
             var messageEnvelope = new MessageEnvelope<ChatMessage> { Id = "1" };
             var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
@@ -389,7 +390,8 @@ namespace AWS.Messaging.UnitTests
                 mockSQSMessageCommunication.Object,
                 mockHandlerInvoker.Object,
                 new NullLogger<DefaultMessageManager>(),
-                new MessageManagerConfiguration());
+                new MessageManagerConfiguration(),
+                TimeProvider.System);
 
             // Create a message group with 2 messages
             var message1 = new MessageEnvelope<ChatMessage>
