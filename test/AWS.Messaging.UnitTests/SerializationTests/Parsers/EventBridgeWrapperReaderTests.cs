@@ -153,6 +153,30 @@ public class EventBridgeWrapperReaderTests
         // No buffer return needed - object/array detail returns a zero-copy slice of the input
     }
 
+    [Fact]
+    public void Extract_SkipsPascalCaseProperties_FastPath()
+    {
+        // PascalCase keys (e.g. SNS-style) should be skipped by the uppercase fast-fail guard
+        // and not interfere with reading the EventBridge discriminator fields.
+        var json = """
+        {
+            "TopicArn": "arn:aws:sns:us-east-1:123:topic",
+            "MessageId": "sns-msg-1",
+            "detail": { "key": "value" },
+            "detail-type": "MyType",
+            "source": "my.source",
+            "time": "2024-03-15T10:00:00Z"
+        }
+        """u8.ToArray();
+
+        using var poolManager = new ArrayPoolManager();
+        var (innerBody, metadata) = _reader.Extract(json, new Message(), poolManager);
+
+        Assert.False(innerBody.IsEmpty);
+        Assert.Equal("MyType", metadata.EventBridgeMetadata?.DetailType);
+        Assert.Equal("my.source", metadata.EventBridgeMetadata?.Source);
+    }
+
     private static void ReturnRentedBuffer(ReadOnlyMemory<byte> memory)
     {
         if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(memory, out var segment) && segment.Array is not null)

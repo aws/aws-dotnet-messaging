@@ -3,6 +3,7 @@
 
 using System.Collections.Frozen;
 using System.Text.Json;
+using AWS.Messaging.Serialization.Helpers;
 
 namespace AWS.Messaging.Serialization.Parsers;
 
@@ -23,6 +24,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     /// <summary>
     /// Creates a classifier from the DI-injected wrapper readers.
     /// Each reader's discriminator keys are assigned sequential bit positions.
+    /// Readers that also implement <see cref="IWrapperInlineExtractor"/> will have their
+    /// fields captured speculatively during the classify pass.
     /// </summary>
     /// <param name="readers">The wrapper readers registered in DI.</param>
     public MessageTypeClassifier(IEnumerable<IWrapperReader> readers)
@@ -44,7 +47,6 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
 
                 var bitMask = 1UL << bitPosition;
 
-                // Convert byte[] key to string for dictionary lookup
                 var keyString = System.Text.Encoding.UTF8.GetString(key);
                 keyToBitMask[keyString] = bitMask;
                 keyList.Add(new KeyEntry(key, bitMask));
@@ -53,7 +55,7 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 bitPosition++;
             }
 
-            readerList.Add(new ReaderEntry(reader, keys, requiredMask));
+            readerList.Add(new ReaderEntry(reader, keys, requiredMask, reader as IWrapperInlineExtractor));
         }
 
         _entries = [.. readerList];
@@ -61,18 +63,17 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
         _keyEntries = [.. keyList];
     }
 
-    /// <summary>
-    /// Performs a single-pass Utf8JsonReader scan over the UTF-8 message body,
-    /// matching depth-1 property names against registered discriminator keys.
-    /// Returns the classification result (wrapper type + captured values).
-    /// Falls back to <see cref="WrapperType.Sqs"/> if no reader matches.
-    /// </summary>
-    /// <param name="utf8Body">The raw UTF-8 bytes of the SQS message body.</param>
-    /// <returns>The classification result.</returns>
-    public WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body)
+    /// <inheritdoc/>
+    public WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body, ArrayPoolManager poolManager)
     {
         ulong bitmap = 0;
         string? typeValue = null;
+
+        // Per-reader inline capture accumulators — only populated when a reader implements
+        // IWrapperInlineExtractor and its TryCaptureProperty recognises the current property.
+        ReadOnlyMemory<byte> capturedBody = default;
+        MessageMetadata? capturedMetadata = null;
+        bool requiresFallback = false;
 
         var reader = new Utf8JsonReader(utf8Body.Span);
 
@@ -85,22 +86,33 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 continue;
             }
 
-            // Check if this property is "Type" to capture its value
+            // Capture the "Type" discriminator value regardless of which reader uses it.
             if (reader.ValueTextEquals(s_typePropertyUtf8))
             {
                 reader.Read();
                 typeValue = reader.GetString();
 
-                // Also mark the bit for "Type" if it's a registered discriminator
                 if (_keyToBitMask.TryGetValue("Type", out var typeBitMask))
-                {
                     bitmap |= typeBitMask;
-                }
                 continue;
             }
 
-            // Check if this property name matches any registered discriminator key
-            // Use ValueTextEquals to avoid allocating strings for non-matching properties
+            // Give each inline extractor a chance to claim the property.
+            // If one does, it has already advanced the reader past the value (and set any discriminator bits).
+            bool capturedByExtractor = false;
+            foreach (var entry in _entries)
+            {
+                if (entry.InlineExtractor is { } extractor
+                    && extractor.TryCaptureProperty(ref reader, poolManager, ref bitmap, _keyToBitMask, ref capturedBody, ref capturedMetadata, ref requiresFallback))
+                {
+                    capturedByExtractor = true;
+                    break;
+                }
+            }
+            if (capturedByExtractor)
+                continue;
+
+            // Match remaining properties against registered discriminator keys.
             foreach (var keyEntry in _keyEntries)
             {
                 if (reader.ValueTextEquals(keyEntry.Utf8Key))
@@ -110,34 +122,39 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 }
             }
 
-            // Skip the property value
+            // Skip the property value.
             reader.Read();
             if (reader.TokenType == JsonTokenType.StartObject ||
                 reader.TokenType == JsonTokenType.StartArray)
                 reader.Skip();
         }
 
-        // Check each reader for a full bitmap match + validation
+        // Check each reader for a full bitmap match + validation.
         foreach (var entry in _entries)
         {
             if ((bitmap & entry.RequiredMask) == entry.RequiredMask)
             {
                 var result = new WrapperClassificationResult(entry.Reader.WrapperType, typeValue);
-                if (entry.Reader.Validate(result))
-                    return result;
+                if (!entry.Reader.Validate(result))
+                    continue;
+
+                // If this reader also performed inline capture and the result is complete,
+                // return the pre-built metadata + body and let the caller skip Extract entirely.
+                if (entry.InlineExtractor is { } extractor
+                    && extractor.IsCaptureSufficient(capturedBody, capturedMetadata, requiresFallback))
+                {
+                    return new WrapperClassificationResult(entry.Reader.WrapperType, typeValue, capturedMetadata, capturedBody);
+                }
+
+                return result;
             }
         }
 
-        // Fallback: plain SQS message (body IS the envelope)
+        // Fallback: plain SQS message (body IS the envelope).
         return new WrapperClassificationResult(WrapperType.Sqs, typeValue);
     }
 
-    /// <summary>
-    /// Gets the <see cref="IWrapperReader"/> for the given wrapper type.
-    /// </summary>
-    /// <param name="wrapperType">The wrapper type to look up.</param>
-    /// <returns>The matching reader.</returns>
-    /// <exception cref="InvalidOperationException">If no reader is registered for the type.</exception>
+    /// <inheritdoc/>
     public IWrapperReader GetReader(WrapperType wrapperType)
     {
         foreach (var entry in _entries)
@@ -152,7 +169,8 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     private readonly record struct ReaderEntry(
         IWrapperReader Reader,
         byte[][] Keys,
-        ulong RequiredMask);
+        ulong RequiredMask,
+        IWrapperInlineExtractor? InlineExtractor);
 
     private readonly record struct KeyEntry(
         byte[] Utf8Key,

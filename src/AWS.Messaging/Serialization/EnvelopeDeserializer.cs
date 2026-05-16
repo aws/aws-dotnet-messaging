@@ -358,7 +358,7 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
         var actualBytes = Encoding.UTF8.GetBytes(sqsMessage.Body, rented);
         var utf8Body = rented.AsMemory(0, actualBytes);
 
-        var classification = _classifier.Classify(utf8Body);
+        var classification = _classifier.Classify(utf8Body, poolManager);
 
         if (classification.WrapperType == WrapperType.Sqs)
         {
@@ -367,7 +367,11 @@ internal class EnvelopeDeserializer : IEnvelopeDeserializer
             return (innerUtf8, metadata);
         }
 
-        // SNS or EventBridge: delegate to the matched reader for metadata + body extraction
+        // SNS fast path: classifier completed full extraction in single pass — skip second pass
+        if (classification.CapturedMetadata is not null)
+            return (classification.CapturedInnerBody, classification.CapturedMetadata);
+
+        // SNS with MessageAttributes, or EventBridge: delegate to the matched reader for metadata + body extraction
         var reader = _classifier.GetReader(classification.WrapperType);
         var (wrapperUtf8, wrapperMetadata) = reader.Extract(utf8Body, sqsMessage, poolManager);
 
