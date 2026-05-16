@@ -127,6 +127,12 @@ internal sealed class EventBridgeWrapperReader : IWrapperReader
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static PropertyType IdentifyProperty(ref Utf8JsonReader reader)
     {
+        // All EventBridge envelope property names are lowercase.
+        // Bail out immediately for anything that starts with an uppercase byte
+        // (SNS discriminator keys are PascalCase).
+        if (reader.ValueSpan[0] >= 'A' && reader.ValueSpan[0] <= 'Z')
+            return PropertyType.Unknown;
+
         if (reader.ValueTextEquals(s_detail)) return PropertyType.Detail;
         if (reader.ValueTextEquals(s_detailType)) return PropertyType.DetailType;
         if (reader.ValueTextEquals(s_source)) return PropertyType.Source;

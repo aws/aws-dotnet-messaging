@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Buffers;
+using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Amazon.SQS.Model;
@@ -14,8 +15,11 @@ namespace AWS.Messaging.Serialization.Parsers;
 /// Reader for messages originating from Amazon Simple Notification Service (SNS).
 /// Detects SNS wrappers via "Type", "MessageId", "TopicArn" discriminators and
 /// extracts the inner message body plus SNS metadata using a single Utf8JsonReader pass.
+/// Also implements <see cref="IWrapperInlineExtractor"/> so the classifier can capture
+/// all simple SNS fields speculatively in one pass, skipping a dedicated second pass
+/// for messages that contain no <c>MessageAttributes</c>.
 /// </summary>
-internal sealed class SNSWrapperReader : IWrapperReader
+internal sealed class SNSWrapperReader : IWrapperReader, IWrapperInlineExtractor
 {
     private static readonly byte[] s_type = "Type"u8.ToArray();
     private static readonly byte[] s_messageId = "MessageId"u8.ToArray();
@@ -124,6 +128,94 @@ internal sealed class SNSWrapperReader : IWrapperReader
 
         return PropertyType.Unknown;
     }
+
+    /// <inheritdoc/>
+    public bool TryCaptureProperty(
+        ref Utf8JsonReader reader,
+        ArrayPoolManager poolManager,
+        ref ulong bitmap,
+        FrozenDictionary<string, ulong> keyToBitMask,
+        ref ReadOnlyMemory<byte> capturedBody,
+        ref MessageMetadata? capturedMetadata,
+        ref bool requiresFallback)
+    {
+        // All SNS outer-envelope property names are PascalCase.
+        // Bail out immediately for anything that starts with a lowercase byte
+        // (CloudEvent, SQS, and EventBridge discriminator keys are camelCase).
+        if (reader.ValueSpan[0] < 'A' || reader.ValueSpan[0] > 'Z')
+            return false;
+
+        if (reader.ValueTextEquals(s_message))
+        {
+            reader.Read();
+            int maxBytes = reader.ValueSpan.Length;
+            byte[] buf = poolManager.Rent(maxBytes);
+            int written = reader.CopyString(buf);
+            capturedBody = buf.AsMemory(0, written);
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_messageId))
+        {
+            reader.Read();
+            (capturedMetadata ??= new MessageMetadata { SNSMetadata = new SNSMetadata() })
+                .SNSMetadata!.MessageId = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+            if (keyToBitMask.TryGetValue("MessageId", out var messageIdBit)) bitmap |= messageIdBit;
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_topicArn))
+        {
+            reader.Read();
+            (capturedMetadata ??= new MessageMetadata { SNSMetadata = new SNSMetadata() })
+                .SNSMetadata!.TopicArn = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+            if (keyToBitMask.TryGetValue("TopicArn", out var topicArnBit)) bitmap |= topicArnBit;
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_subject))
+        {
+            reader.Read();
+            (capturedMetadata ??= new MessageMetadata { SNSMetadata = new SNSMetadata() })
+                .SNSMetadata!.Subject = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_unsubscribeUrl))
+        {
+            reader.Read();
+            (capturedMetadata ??= new MessageMetadata { SNSMetadata = new SNSMetadata() })
+                .SNSMetadata!.UnsubscribeURL = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_timestamp))
+        {
+            reader.Read();
+            (capturedMetadata ??= new MessageMetadata { SNSMetadata = new SNSMetadata() })
+                .SNSMetadata!.Timestamp = reader.TokenType != JsonTokenType.Null ? reader.GetDateTimeOffset() : default;
+            return true;
+        }
+
+        if (reader.ValueTextEquals(s_messageAttributes))
+        {
+            // Complex sub-object — flag fallback required; SNSWrapperReader.Extract handles it
+            requiresFallback = true;
+            reader.Read();
+            if (reader.TokenType == JsonTokenType.StartObject || reader.TokenType == JsonTokenType.StartArray)
+                reader.Skip();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool IsCaptureSufficient(
+        ReadOnlyMemory<byte> capturedBody,
+        MessageMetadata? capturedMetadata,
+        bool requiresFallback)
+        => !capturedBody.IsEmpty && !requiresFallback;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ReadOnlyMemory<byte> ReadMessage(ref Utf8JsonReader reader, ArrayPoolManager poolManager)

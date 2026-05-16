@@ -15,11 +15,11 @@ internal interface IMessageTypeClassifier
     /// Scans the first-level JSON property names in <paramref name="utf8Body"/> to build
     /// a key bitmap, then matches it against registered reader masks.
     /// Falls back to <see cref="WrapperType.Sqs"/> if no reader matches.
-    /// When the message is SNS-wrapped without <c>MessageAttributes</c>, also captures all
-    /// simple SNS fields and the inner body into <paramref name="poolManager"/>-rented buffers,
-    /// populating <see cref="WrapperClassificationResult.CapturedMetadata"/> and
-    /// <see cref="WrapperClassificationResult.CapturedInnerBody"/> so the caller can skip the
-    /// dedicated <c>SNSWrapperReader</c> pass entirely.
+    /// Readers that also implement <see cref="IWrapperInlineExtractor"/> may capture
+    /// their fields speculatively, populating
+    /// <see cref="WrapperClassificationResult.CapturedMetadata"/> and
+    /// <see cref="WrapperClassificationResult.CapturedInnerBody"/> so the caller can skip
+    /// the dedicated <see cref="IWrapperReader.Extract"/> pass.
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the SQS message body.</param>
     /// <param name="poolManager">Manager for renting/tracking ArrayPool buffers.</param>
