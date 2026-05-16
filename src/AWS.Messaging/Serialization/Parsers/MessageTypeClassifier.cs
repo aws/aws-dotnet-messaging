@@ -3,6 +3,7 @@
 
 using System.Collections.Frozen;
 using System.Text.Json;
+using AWS.Messaging.Serialization.Helpers;
 
 namespace AWS.Messaging.Serialization.Parsers;
 
@@ -15,6 +16,16 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
 {
     // Pre-encoded UTF-8 bytes for the "Type" property name, used to capture the SNS "Type" value.
     private static readonly byte[] s_typePropertyUtf8 = "Type"u8.ToArray();
+
+    // SNS field keys captured speculatively during the single classify pass.
+    // Bare SQS envelopes never have these property names, so no wasted work on the common path.
+    private static readonly byte[] s_snsMessage          = "Message"u8.ToArray();
+    private static readonly byte[] s_snsMessageId        = "MessageId"u8.ToArray();
+    private static readonly byte[] s_snsTopicArn         = "TopicArn"u8.ToArray();
+    private static readonly byte[] s_snsSubject          = "Subject"u8.ToArray();
+    private static readonly byte[] s_snsUnsubscribeUrl   = "UnsubscribeURL"u8.ToArray();
+    private static readonly byte[] s_snsTimestamp        = "Timestamp"u8.ToArray();
+    private static readonly byte[] s_snsMessageAttributes = "MessageAttributes"u8.ToArray();
 
     private readonly ReaderEntry[] _entries;
     private readonly FrozenDictionary<string, ulong> _keyToBitMask;
@@ -66,13 +77,27 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
     /// matching depth-1 property names against registered discriminator keys.
     /// Returns the classification result (wrapper type + captured values).
     /// Falls back to <see cref="WrapperType.Sqs"/> if no reader matches.
+    /// <para>
+    /// For SNS messages without <c>MessageAttributes</c>, all simple fields and the inner
+    /// body are captured inline, populating <see cref="WrapperClassificationResult.CapturedMetadata"/>
+    /// and <see cref="WrapperClassificationResult.CapturedInnerBody"/> so the caller can skip
+    /// the dedicated <see cref="SNSWrapperReader"/> pass entirely.
+    /// </para>
     /// </summary>
     /// <param name="utf8Body">The raw UTF-8 bytes of the SQS message body.</param>
+    /// <param name="poolManager">Manager for renting/tracking ArrayPool buffers.</param>
     /// <returns>The classification result.</returns>
-    public WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body)
+    public WrapperClassificationResult Classify(ReadOnlyMemory<byte> utf8Body, ArrayPoolManager poolManager)
     {
         ulong bitmap = 0;
         string? typeValue = null;
+
+        // SNS field capture — populated speculatively during the pass.
+        // These properties do not exist in bare SQS envelopes, so branches are never taken
+        // on the non-SNS path and there is no wasted allocation.
+        SNSMetadata? snsCandidate = null;
+        ReadOnlyMemory<byte> capturedInnerBody = default;
+        bool hasMessageAttributes = false;
 
         var reader = new Utf8JsonReader(utf8Body.Span);
 
@@ -99,6 +124,66 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
                 continue;
             }
 
+            // All SNS outer-envelope property names are PascalCase (Message, MessageId, TopicArn, …).
+            // CloudEvent, SQS, and EventBridge discriminator keys are all camelCase (id, source, detail, …).
+            // A single first-byte uppercase check gates every SNS comparison — zero cost on the SQS fast path.
+            if (reader.ValueSpan[0] >= 'A' && reader.ValueSpan[0] <= 'Z')
+            {
+                // SNS "Message": unescape directly into a rented buffer — no intermediate string
+                if (reader.ValueTextEquals(s_snsMessage))
+                {
+                    reader.Read();
+                    int maxBytes = reader.ValueSpan.Length;
+                    byte[] buf = poolManager.Rent(maxBytes);
+                    int written = reader.CopyString(buf);
+                    capturedInnerBody = buf.AsMemory(0, written);
+                    continue;
+                }
+
+                // Remaining SNS fields — lazy-init SNSMetadata only if at least one is found
+                if (reader.ValueTextEquals(s_snsMessageId))
+                {
+                    reader.Read();
+                    (snsCandidate ??= new SNSMetadata()).MessageId = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+                    if (_keyToBitMask.TryGetValue("MessageId", out var messageIdBit)) bitmap |= messageIdBit;
+                    continue;
+                }
+                if (reader.ValueTextEquals(s_snsTopicArn))
+                {
+                    reader.Read();
+                    (snsCandidate ??= new SNSMetadata()).TopicArn = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+                    if (_keyToBitMask.TryGetValue("TopicArn", out var topicArnBit)) bitmap |= topicArnBit;
+                    continue;
+                }
+                if (reader.ValueTextEquals(s_snsSubject))
+                {
+                    reader.Read();
+                    (snsCandidate ??= new SNSMetadata()).Subject = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+                    continue;
+                }
+                if (reader.ValueTextEquals(s_snsUnsubscribeUrl))
+                {
+                    reader.Read();
+                    (snsCandidate ??= new SNSMetadata()).UnsubscribeURL = reader.TokenType != JsonTokenType.Null ? reader.GetString() : null;
+                    continue;
+                }
+                if (reader.ValueTextEquals(s_snsTimestamp))
+                {
+                    reader.Read();
+                    (snsCandidate ??= new SNSMetadata()).Timestamp = reader.TokenType != JsonTokenType.Null ? reader.GetDateTimeOffset() : default;
+                    continue;
+                }
+                if (reader.ValueTextEquals(s_snsMessageAttributes))
+                {
+                    // Complex sub-object — flag its presence and skip; SNSWrapperReader handles it in fallback
+                    hasMessageAttributes = true;
+                    reader.Read();
+                    if (reader.TokenType == JsonTokenType.StartObject || reader.TokenType == JsonTokenType.StartArray)
+                        reader.Skip();
+                    continue;
+                }
+            }
+
             // Check if this property name matches any registered discriminator key
             // Use ValueTextEquals to avoid allocating strings for non-matching properties
             foreach (var keyEntry in _keyEntries)
@@ -123,8 +208,24 @@ internal sealed class MessageTypeClassifier : IMessageTypeClassifier
             if ((bitmap & entry.RequiredMask) == entry.RequiredMask)
             {
                 var result = new WrapperClassificationResult(entry.Reader.WrapperType, typeValue);
-                if (entry.Reader.Validate(result))
-                    return result;
+                if (!entry.Reader.Validate(result))
+                    continue;
+
+                // SNS fast path: all simple fields captured inline — build MessageMetadata directly
+                // and skip the dedicated SNSWrapperReader pass. Falls back when MessageAttributes
+                // are present (requires a dedicated sub-object parse pass).
+                if (entry.Reader.WrapperType == WrapperType.Sns
+                    && !capturedInnerBody.IsEmpty
+                    && !hasMessageAttributes)
+                {
+                    var capturedMetadata = new MessageMetadata
+                    {
+                        SNSMetadata = snsCandidate ?? new SNSMetadata()
+                    };
+                    return new WrapperClassificationResult(WrapperType.Sns, typeValue, capturedMetadata, capturedInnerBody);
+                }
+
+                return result;
             }
         }
 

@@ -4,7 +4,9 @@
 using System;
 using System.Text;
 using System.Text.Json;
+using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Serialization.Helpers;
 using AWS.Messaging.Serialization.Parsers;
 using Xunit;
 
@@ -32,10 +34,70 @@ public class MessageTypeClassifierTests
         }
         """u8.ToArray();
 
-        var result = _classifier.Classify(json);
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
 
         Assert.Equal(WrapperType.Sns, result.WrapperType);
         Assert.Equal("Notification", result.TypeValue);
+    }
+
+    [Fact]
+    public void Classify_WithSNSMessage_CapturesMetadataAndInnerBodyInSinglePass()
+    {
+        var json = """
+        {
+            "Type": "Notification",
+            "MessageId": "sns-msg-1",
+            "TopicArn": "arn:aws:sns:us-east-1:123:topic",
+            "Subject": "my-subject",
+            "UnsubscribeURL": "https://unsubscribe.example.com",
+            "Timestamp": "2024-03-15T10:00:00Z",
+            "Message": "inner-body"
+        }
+        """u8.ToArray();
+
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
+
+        Assert.Equal(WrapperType.Sns, result.WrapperType);
+        Assert.NotNull(result.CapturedMetadata);
+        Assert.False(result.CapturedInnerBody.IsEmpty);
+
+        var snsMetadata = result.CapturedMetadata!.SNSMetadata;
+        Assert.NotNull(snsMetadata);
+        Assert.Equal("sns-msg-1", snsMetadata!.MessageId);
+        Assert.Equal("arn:aws:sns:us-east-1:123:topic", snsMetadata.TopicArn);
+        Assert.Equal("my-subject", snsMetadata.Subject);
+        Assert.Equal("https://unsubscribe.example.com", snsMetadata.UnsubscribeURL);
+        Assert.Equal(new DateTimeOffset(2024, 3, 15, 10, 0, 0, TimeSpan.Zero), snsMetadata.Timestamp);
+
+        var innerBody = Encoding.UTF8.GetString(result.CapturedInnerBody.Span);
+        Assert.Equal("inner-body", innerBody);
+    }
+
+    [Fact]
+    public void Classify_WithSNSMessage_WithMessageAttributes_FallsBackToSecondPass()
+    {
+        // MessageAttributes present — classifier should NOT populate CapturedMetadata
+        // so the caller falls through to the full SNSWrapperReader pass
+        var json = """
+        {
+            "Type": "Notification",
+            "MessageId": "sns-msg-1",
+            "TopicArn": "arn:aws:sns:us-east-1:123:topic",
+            "Message": "inner-body",
+            "MessageAttributes": {
+                "attr1": { "Type": "String", "Value": "val1" }
+            }
+        }
+        """u8.ToArray();
+
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
+
+        Assert.Equal(WrapperType.Sns, result.WrapperType);
+        Assert.Null(result.CapturedMetadata);
+        Assert.True(result.CapturedInnerBody.IsEmpty);
     }
 
     [Fact]
@@ -50,7 +112,8 @@ public class MessageTypeClassifierTests
         }
         """u8.ToArray();
 
-        var result = _classifier.Classify(json);
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
 
         Assert.Equal(WrapperType.Sqs, result.WrapperType);
     }
@@ -67,7 +130,8 @@ public class MessageTypeClassifierTests
         }
         """u8.ToArray();
 
-        var result = _classifier.Classify(json);
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
 
         Assert.Equal(WrapperType.EventBridge, result.WrapperType);
     }
@@ -86,7 +150,8 @@ public class MessageTypeClassifierTests
         }
         """u8.ToArray();
 
-        var result = _classifier.Classify(json);
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
 
         Assert.Equal(WrapperType.Sqs, result.WrapperType);
     }
@@ -103,7 +168,8 @@ public class MessageTypeClassifierTests
         }
         """u8.ToArray();
 
-        var result = _classifier.Classify(json);
+        using var poolManager = new ArrayPoolManager();
+        var result = _classifier.Classify(json, poolManager);
 
         Assert.Equal(WrapperType.Sqs, result.WrapperType);
     }
