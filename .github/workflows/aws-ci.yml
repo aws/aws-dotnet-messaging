@@ -6,15 +6,21 @@ on:
       - v3sdk-release
       - v3sdk-development
 
-permissions:
-  id-token: write
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Run CI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # to assume the testing roles via OIDC
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@5fd3084fc36e372ff1fff382a39b10d03659f355 # v2.2.0
         with:
           role-to-assume: ${{ secrets.CI_MAIN_TESTING_ACCOUNT_ROLE_ARN }}
           role-duration-seconds: 7200
@@ -35,18 +41,20 @@ jobs:
           $roleArn=$(cat ./response.json)
           "roleArn=$($roleArn -replace '"', '')" >> $env:GITHUB_OUTPUT
       - name: Configure Test Runner Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@5fd3084fc36e372ff1fff382a39b10d03659f355 # v2.2.0
         with:
           role-to-assume: ${{ steps.lambda.outputs.roleArn }}
           role-duration-seconds: 7200
           aws-region: us-west-2
       - name: Run Tests on AWS
         id: codebuild
-        uses: aws-actions/aws-codebuild-run-build@v1
+        uses: aws-actions/aws-codebuild-run-build@7e46c3fa1c1f217e26a73712796b1f78938b534b # v1.0.19
         with:
           project-name: ${{ secrets.CI_TESTING_CODE_BUILD_PROJECT_NAME }}
       - name: CodeBuild Link
         shell: pwsh
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.aws-build-id }}
         run: |
-          $buildId = "${{ steps.codebuild.outputs.aws-build-id }}"
+          $buildId = "$env:BUILD_ID"
           echo $buildId
