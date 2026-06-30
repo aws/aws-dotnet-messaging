@@ -1,0 +1,41 @@
+<Project>
+  <!-- Central Package Management - Test Projects -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- AWS SDK Packages -->
+    <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.0.14.6" />
+    <PackageVersion Include="AWSSDK.IdentityManagement" Version="4.0.9.8" />
+    <PackageVersion Include="AWSSDK.Lambda" Version="4.0.13.2" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.18.7" />
+    <PackageVersion Include="AWSSDK.SecurityToken" Version="4.0.5.10" />
+
+    <!-- Amazon Lambda Packages -->
+    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
+
+    <!-- Microsoft Extensions Packages -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="$(MicrosoftExtensionsVersion)" />
+
+    <!-- Test Framework Packages -->
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+
+    <!-- Test Utility Packages -->
+    <PackageVersion Include="Amazon.Lambda.TestUtilities" Version="3.0.1" />
+    <PackageVersion Include="Moq" Version="4.18.4" />
+    <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="$(MicrosoftExtensionsVersion)" />
+
+    <!-- Benchmark Packages -->
+    <PackageVersion Include="Perfolizer" Version="0.3.5" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+  </ItemGroup>
+</Project>

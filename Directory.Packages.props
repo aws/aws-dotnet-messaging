@@ -1,0 +1,33 @@
+<Project>
+  <!-- Central Package Management - Master File -->
+  <PropertyGroup>
+    <MicrosoftExtensionsVersion>8.0.*</MicrosoftExtensionsVersion>
+    <OpenTelemetryVersion>1.15.3</OpenTelemetryVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AWS SDK Packages -->
+    <PackageVersion Include="AWSSDK.EventBridge" Version="4.0.5.16" />
+    <PackageVersion Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.23" />
+    <PackageVersion Include="AWSSDK.SimpleNotificationService" Version="4.0.2.17" />
+    <PackageVersion Include="AWSSDK.SQS" Version="4.0.2.15" />
+
+    <!-- Amazon Lambda Packages -->
+    <PackageVersion Include="Amazon.Lambda.Core" Version="2.8.1" />
+    <PackageVersion Include="Amazon.Lambda.SQSEvents" Version="2.2.1" />
+
+    <!-- Microsoft Extensions Packages -->
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="$(MicrosoftExtensionsVersion)" />
+
+    <!-- Build and Source Control Packages -->
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+
+    <!-- OpenTelemetry Packages -->
+    <PackageVersion Include="OpenTelemetry" Version="$(OpenTelemetryVersion)" />
+    <PackageVersion Include="OpenTelemetry.Api" Version="$(OpenTelemetryVersion)" />
+  </ItemGroup>
+</Project>

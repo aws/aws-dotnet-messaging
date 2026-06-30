@@ -1,0 +1,14 @@
+<Project>
+  <!-- Central Package Management - SubscriberService Sample App -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- OpenTelemetry Extensions for Samples -->
+    <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.11.2" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
+
+    <!-- Microsoft Extensions -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+<Project>
+  <!-- Central Package Management - PublisherAPI Sample App -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- OpenTelemetry Extensions for Samples -->
+    <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.11.2" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
+
+    <!-- Swagger/OpenAPI -->
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="8.0.0" />
+  </ItemGroup>
+</Project>

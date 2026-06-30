@@ -1,0 +1,18 @@
+<Project>
+  <!-- Central Package Management - PollyIntegration Sample App -->
+  <!-- Import master package versions -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Packages.props" />
+
+  <ItemGroup>
+    <!-- Polly Packages -->
+    <PackageVersion Include="Polly.Core" Version="8.1.0" />
+    <PackageVersion Include="Polly.Extensions" Version="8.1.0" />
+
+    <!-- OpenTelemetry Extensions for Samples -->
+    <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.11.2" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.11.2" />
+
+    <!-- Microsoft Extensions -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+  </ItemGroup>
+</Project>
