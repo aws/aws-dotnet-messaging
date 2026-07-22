@@ -12,6 +12,47 @@ permissions:
   id-token: write
 
 jobs:
+  # Runs the test suite in its default mode: integration tests execute against the
+  # in-memory LocalSqsSnsMessaging backend, so no AWS credentials are required.
+  # Tests that need real AWS resources (e.g. Lambda) are skipped in this mode and
+  # covered by the run-ci job below, which runs with AWS_MESSAGING_TEST_MODE=aws.
+  run-local-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 #v5.2.0
+        with:
+          dotnet-version: 8.x
+      - name: Run Tests (in-memory)
+        run: dotnet test AWS.Messaging.sln -c Release
+  # Runs the test suite against a local Floci container (a LocalStack-compatible AWS
+  # emulator), a close approximation of real AWS including Lambda. Unlike the run-ci job
+  # below, this needs no AWS credentials or repository secrets, so it also provides
+  # near-real coverage on pull requests from forks, where secrets are unavailable and
+  # the real-AWS job cannot run.
+  run-floci-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 #v5.2.0
+        with:
+          dotnet-version: 8.x
+      - name: Start Floci
+        run: |
+          docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d
+          echo "Waiting for Floci to become ready..."
+          timeout 60 bash -c 'until curl -s --max-time 2 -o /dev/null http://localhost:4566/; do sleep 1; done'
+      - name: Run Tests (Floci)
+        env:
+          AWS_MESSAGING_TEST_MODE: floci
+        run: dotnet test AWS.Messaging.sln -c Release
+      - name: Floci logs
+        if: failure()
+        run: docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml logs
   run-ci:
     runs-on: ubuntu-latest
     steps:

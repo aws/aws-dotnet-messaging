@@ -6,7 +6,6 @@ using System.Text.Json;
 using AWS.Messaging.Internal;
 using OpenTelemetry;
 using OpenTelemetry.Context.Propagation;
-using OpenTelemetry.Trace;
 
 namespace AWS.Messaging.Telemetry.OpenTelemetry;
 
@@ -32,7 +31,7 @@ public class OpenTelemetryTrace : ITelemetryTrace
     /// <inheritdoc/>
     public void AddException(Exception exception, bool fatal = true)
     {
-        _activity?.RecordException(exception);
+        _activity?.AddException(exception);
 
         if (fatal)
         {

@@ -18,7 +18,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.*" />
     <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.23" />
-    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.15" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.100.5" />
+    <PackageReference Include="LocalSqsSnsMessaging" Version="1.0.2" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

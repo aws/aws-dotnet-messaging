@@ -1,0 +1,31 @@
+# Local AWS emulator used by the integration tests when AWS_MESSAGING_TEST_MODE=floci.
+#
+#   docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d
+#   AWS_MESSAGING_TEST_MODE=floci dotnet test test/AWS.Messaging.IntegrationTests
+#
+# The tests target http://localhost:4566 by default (see TestAwsBackend),
+# overridable via the FLOCI_SERVICE_URL environment variable.
+#
+# The Docker socket mount is required for the Lambda integration tests: floci
+# runs each Lambda in a real Docker container that it spawns on its own network
+# and attaches to floci via FLOCI_BASE_URL. Without the socket, the in-process
+# services (SQS, SNS, EventBridge, S3, IAM, STS, Logs) still work but Lambda does not.
+# The host port defaults to 4566; set FLOCI_HOST_PORT if that clashes with another
+# emulator on your machine (and point FLOCI_SERVICE_URL at the port you chose).
+services:
+  floci:
+    image: floci/floci:1.5.32
+    ports:
+      - "${FLOCI_HOST_PORT:-4566}:4566"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_BASE_URL: http://floci:4566
+      FLOCI_SERVICES_DOCKER_NETWORK: floci_default
+
+# Name the default network explicitly so it matches FLOCI_SERVICES_DOCKER_NETWORK,
+# letting spawned Lambda containers reach floci at http://floci:4566.
+networks:
+  default:
+    name: floci_default

@@ -22,7 +22,7 @@ public class SQSPublisherTests : IAsyncLifetime
 
     public SQSPublisherTests()
     {
-        _sqsClient = new AmazonSQSClient();
+        _sqsClient = new TestAwsBackend().CreateSqsClient();
         _serviceProvider = default!;
         _sqsQueueUrl = string.Empty;
     }
@@ -34,6 +34,7 @@ public class SQSPublisherTests : IAsyncLifetime
 
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddSQSPublisher<ChatMessage>(_sqsQueueUrl);
@@ -116,7 +117,7 @@ public class SQSPublisherTests : IAsyncLifetime
                 QueueUrl = _sqsQueueUrl,
                 MaxNumberOfMessages = 10
             });
-            receivedMessages.AddRange(receiveResponse.Messages);
+            receivedMessages.AddRange(receiveResponse.Messages ?? new List<Message>());
             if (receivedMessages.Count >= 5)
                 break;
             await Task.Delay(1000);
@@ -172,7 +173,7 @@ public class SQSPublisherTests : IAsyncLifetime
                 MaxNumberOfMessages = 10,
                 WaitTimeSeconds = 5
             });
-            receivedMessages.AddRange(receiveResponse.Messages);
+            receivedMessages.AddRange(receiveResponse.Messages ?? new List<Message>());
         }
 
         Assert.Equal(15, receivedMessages.Count);
