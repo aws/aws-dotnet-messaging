@@ -54,6 +54,27 @@ public interface IMessageBusBuilder
         where THandler : IMessageHandler<TMessage>;
 
     /// <summary>
+    /// Adds a middleware to the subscriber message bus pipeline.
+    /// </summary>
+    /// <remarks>
+    /// Middleware will be executed in the order in which it is added.
+    /// </remarks>
+    /// <typeparam name="TMiddleware">The type that implements <see cref="IHandlerMiddleware"/></typeparam>
+    /// <param name="serviceLifetime">The lifetime of the middleware.</param>
+    IMessageBusBuilder AddHandlerMiddleware<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMiddleware>(ServiceLifetime serviceLifetime = ServiceLifetime.Singleton)
+        where TMiddleware : class, IHandlerMiddleware;
+
+    /// <summary>
+    /// Adds a message error handler to the subscriber pipeline.
+    /// The error handler is invoked when an exception occurs during message processing
+    /// and can control retry behavior, override results, or handle exceptions.
+    /// </summary>
+    /// <typeparam name="T">The type that implements <see cref="IMessageErrorHandler"/></typeparam>
+    /// <param name="serviceLifetime">The lifetime of the error handler.</param>
+    IMessageBusBuilder AddMessageErrorHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(ServiceLifetime serviceLifetime = ServiceLifetime.Singleton)
+        where T : IMessageErrorHandler;
+
+    /// <summary>
     /// Adds an SQS queue to poll for messages.
     /// </summary>
     /// <param name="queueUrl">The SQS queue to poll for messages.</param>
@@ -130,6 +151,19 @@ public interface IMessageBusBuilder
     /// <param name="serviceDescriptor">The service descriptor for the added service.</param>
     /// <returns></returns>
     IMessageBusBuilder AddAdditionalService(ServiceDescriptor serviceDescriptor);
+
+    /// <summary>
+    /// Add additional services to the <see cref="IMessageBusBuilder"/> by registering a callback that receives the current
+    /// <see cref="IMessageConfiguration"/> and the target <see cref="IServiceCollection"/>. This method is used for
+    /// AWS.Messaging plugins to add services for messaging. The callback is invoked during <c>builder.Build()</c> after
+    /// all framework service registrations have completed. The <see cref="IMessageConfiguration"/> parameter should be
+    /// treated as read-only; any mutations to it will not be reflected in the services already registered by the framework.
+    /// </summary>
+    /// <param name="action">Configuration action to perform during <c>builder.Build()</c>. The first parameter is the current
+    /// <see cref="IMessageConfiguration"/> (read-only — mutations will not affect prior registrations), and the second
+    /// parameter is the <see cref="IServiceCollection"/> to which additional services can be added.</param>
+    /// <returns></returns>
+    IMessageBusBuilder AddAdditionalService(Action<IMessageConfiguration, IServiceCollection> action);
 
     /// <summary>
     /// Enables the visibility of data messages in the logging framework, exception handling and other areas.

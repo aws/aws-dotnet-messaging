@@ -8,8 +8,11 @@ on:
       - dev
       - 'feature/**'
 
-permissions:
-  id-token: write
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Runs the test suite in its default mode: integration tests execute against the
@@ -17,12 +20,17 @@ jobs:
   # Tests that need real AWS resources (e.g. Lambda) are skipped in this mode and
   # covered by the run-ci job below, which runs with AWS_MESSAGING_TEST_MODE=aws.
   run-local-tests:
+    name: Run tests (in-memory)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check out the repository
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 #v5.2.0
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: 8.x
       - name: Run Tests (in-memory)
@@ -33,12 +41,17 @@ jobs:
   # near-real coverage on pull requests from forks, where secrets are unavailable and
   # the real-AWS job cannot run.
   run-floci-tests:
+    name: Run tests (Floci)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check out the repository
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 #v5.2.0
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: 8.x
       - name: Start Floci
@@ -54,10 +67,13 @@ jobs:
         if: failure()
         run: docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml logs
   run-ci:
+    name: Run CI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # to assume the testing roles via OIDC
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 #v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
           role-to-assume: ${{ secrets.CI_MAIN_TESTING_ACCOUNT_ROLE_ARN }}
           role-duration-seconds: 7200
@@ -70,18 +86,20 @@ jobs:
           $roleArn=$(cat ./response.json)
           "roleArn=$($roleArn -replace '"', '')" >> $env:GITHUB_OUTPUT
       - name: Configure Test Runner Credentials
-        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 #v4
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
           role-to-assume: ${{ steps.lambda.outputs.roleArn }}
           role-duration-seconds: 7200
           aws-region: us-west-2
       - name: Run Tests on AWS
         id: codebuild
-        uses: aws-actions/aws-codebuild-run-build@4d15a47425739ac2296ba5e7eee3bdd4bfbdd767 #v1.0.18
+        uses: aws-actions/aws-codebuild-run-build@4d15a47425739ac2296ba5e7eee3bdd4bfbdd767 # v1.0.18
         with:
           project-name: ${{ secrets.CI_TESTING_CODE_BUILD_PROJECT_NAME }}
       - name: CodeBuild Link
         shell: pwsh
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.aws-build-id }}
         run: |
-          $buildId = "${{ steps.codebuild.outputs.aws-build-id }}"
+          $buildId = "$env:BUILD_ID"
           echo $buildId

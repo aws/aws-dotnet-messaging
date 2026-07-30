@@ -48,6 +48,9 @@ internal class SingleTypeMessageConfiguration : IMessageConfiguration
             : null;
 
     /// <inheritdoc/>
+    public IList<SubscriberMiddleware> SubscriberMiddleware => _inner.SubscriberMiddleware;
+
+    /// <inheritdoc/>
     public IList<IMessagePollerConfiguration> MessagePollerConfigurations
     {
         get => _inner.MessagePollerConfigurations;
