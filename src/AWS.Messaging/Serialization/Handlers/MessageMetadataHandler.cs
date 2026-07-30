@@ -37,6 +37,12 @@ internal static class MessageMetadataHandler
             {
                 metadata.SentTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(epochMilliseconds);
             }
+
+            var approximateReceiveCount = JsonPropertyHelper.GetAttributeValue(message.Attributes, "ApproximateReceiveCount");
+            if (!string.IsNullOrEmpty(approximateReceiveCount) && int.TryParse(approximateReceiveCount, out var receiveCount))
+            {
+                metadata.ApproximateReceiveCount = receiveCount;
+            }
         }
 
         return metadata;

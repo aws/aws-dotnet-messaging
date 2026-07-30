@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Expose ApproximateReceiveCount on SQSMetadata so handlers can distinguish first deliveries from redeliveries."
+      ]
+    }
+  ]
+}
