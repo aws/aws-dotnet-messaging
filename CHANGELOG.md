@@ -1,3 +1,12 @@
+## Release 2026-07-30
+
+### AWS.Messaging (1.4.0)
+* Add builder overload to modify underlying service collection on build
+* Added subscriber middleware with optional error handler to override result or retry execution.
+* Implement Utf8JsonWriter based serializer
+### AWS.Messaging.Telemetry.OpenTelemetry (1.0.1)
+* Updated OpenTelemetry package dependencies to 1.15.3.
+
 ## Release 2026-04-06
 
 ### AWS.Messaging (1.3.0)
