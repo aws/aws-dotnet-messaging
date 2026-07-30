@@ -666,6 +666,129 @@ public class MessageBusBuilderTests
             }));
     }
 
+    [Fact]
+    public void MessageBus_RegistersStandardImplementations()
+    {
+        _serviceCollection.AddAWSMessageBus(builder => { });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var messageSerializer = serviceProvider.GetRequiredService<IMessageSerializer>();
+
+        Assert.IsType<EnvelopeSerializer>(envelopeSerializer);
+        Assert.IsType<MessageSerializer>(messageSerializer);
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_ServiceDescriptor()
+    {
+        var instance = new AdditionalServiceFixture();
+
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddAdditionalService(new ServiceDescriptor(typeof(AdditionalServiceFixture), instance));
+        });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var resolved = serviceProvider.GetService<AdditionalServiceFixture>();
+        Assert.NotNull(resolved);
+        Assert.Same(instance, resolved);
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_ServiceDescriptor_TryAdd_DoesNotOverwriteExistingRegistration()
+    {
+        var firstInstance = new AdditionalServiceFixture();
+        var secondInstance = new AdditionalServiceFixture();
+
+        _serviceCollection.AddSingleton(firstInstance);
+
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddAdditionalService(new ServiceDescriptor(typeof(AdditionalServiceFixture), secondInstance));
+        });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var resolved = serviceProvider.GetService<AdditionalServiceFixture>();
+        Assert.Same(firstInstance, resolved);
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_ServiceDescriptor_NullThrows()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            _serviceCollection.AddAWSMessageBus(builder =>
+            {
+                builder.AddAdditionalService((ServiceDescriptor)null!);
+            }));
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_Action_PassesConfigurationToCallback()
+    {
+        var instance = new AdditionalServiceFixture();
+        IMessageConfiguration? capturedConfiguration = null;
+
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPublisher<OrderInfo>("sqsQueueUrl");
+            builder.AddAdditionalService((configuration, services) =>
+            {
+                capturedConfiguration = configuration;
+                services.AddSingleton(instance);
+            });
+        });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var resolved = serviceProvider.GetService<AdditionalServiceFixture>();
+        Assert.NotNull(resolved);
+        Assert.Same(instance, resolved);
+
+        Assert.NotNull(capturedConfiguration);
+        Assert.Same(serviceProvider.GetRequiredService<IMessageConfiguration>(), capturedConfiguration);
+        Assert.NotNull(capturedConfiguration!.GetPublisherMapping(typeof(OrderInfo)));
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_Action_CanOverwriteExistingRegistration()
+    {
+        var firstInstance = new AdditionalServiceFixture();
+        var secondInstance = new AdditionalServiceFixture();
+
+        _serviceCollection.AddSingleton(firstInstance);
+
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddAdditionalService((_, services) =>
+            {
+                services.AddSingleton(secondInstance);
+            });
+        });
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+
+        var resolved = serviceProvider.GetService<AdditionalServiceFixture>();
+        Assert.Same(secondInstance, resolved);
+    }
+
+    [Fact]
+    public void MessageBus_AddAdditionalService_Action_NullThrows()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            _serviceCollection.AddAWSMessageBus(builder =>
+            {
+                builder.AddAdditionalService((Action<IMessageConfiguration, IServiceCollection>)null!);
+            }));
+    }
+
+    private sealed class AdditionalServiceFixture
+    {
+    }
+
     // These services must be present irrespective of whether publishers or subscribers are configured.
     private void CheckRequiredServices(ServiceProvider serviceProvider)
     {

@@ -311,6 +311,112 @@ The outer `MessageEnvelope` contains metadata used by the framework. Its `messag
 
 You can return `MessageProcessStatus.Success()` to indicate that the message was processed successfully and the framework will delete the message from the SQS queue. When returning `MessageProcessStatus.Failed()` the message will remain in the queue, where it can be processed again or moved to a [dead-letter queue](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html) if configured.
 
+## Subscriber Middleware
+
+You can add middleware to the subscriber message processing pipeline. Middleware executes in the order it is registered, wrapping around the message handler. This is useful for cross-cutting concerns such as logging, metrics, message enrichment, or custom retry logic.
+
+To create middleware, implement the `IHandlerMiddleware` interface:
+
+```csharp
+public class LoggingMiddleware : IHandlerMiddleware
+{
+    private readonly ILogger<LoggingMiddleware> _logger;
+
+    public LoggingMiddleware(ILogger<LoggingMiddleware> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task<MessageProcessStatus> InvokeAsync<T>(
+        MessageEnvelope<T> messageEnvelope,
+        RequestDelegate next,
+        CancellationToken token = default)
+    {
+        _logger.LogInformation("Processing message {MessageId}", messageEnvelope.Id);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        var result = await next();
+
+        stopwatch.Stop();
+        _logger.LogInformation("Processed message {MessageId} in {Elapsed}ms", messageEnvelope.Id, stopwatch.ElapsedMilliseconds);
+
+        return result;
+    }
+}
+```
+
+Register middleware during startup using `AddHandlerMiddleware`. Middleware is registered as a singleton by default, but you can configure its service lifetime:
+
+```csharp
+services.AddAWSMessageBus(builder =>
+{
+    builder.AddSQSPoller("https://sqs.us-west-2.amazonaws.com/012345678910/MyAppProd");
+    builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+
+    // Add middleware - executes in registration order
+    builder.AddHandlerMiddleware<LoggingMiddleware>();
+    builder.AddHandlerMiddleware<MetricsMiddleware>();
+
+    // Optionally specify a different service lifetime
+    builder.AddHandlerMiddleware<ScopedMiddleware>(ServiceLifetime.Scoped);
+});
+```
+
+## Message Error Handling
+
+You can register a message error handler to control what happens when an exception occurs during message processing (in the handler or middleware). The error handler can choose to retry, fail, or mark the message as successful.
+
+Implement the `IMessageErrorHandler` interface:
+```csharp
+public class TransientErrorHandler : IMessageErrorHandler
+{
+    private readonly ILogger<TransientErrorHandler> _logger;
+
+    public TransientErrorHandler(ILogger<TransientErrorHandler> logger)
+    {
+        _logger = logger;
+    }
+
+    public ValueTask<MessageErrorHandlerResponse> OnHandleError<T>(
+        MessageEnvelope<T> messageEnvelope,
+        Exception exception,
+        int attempts,
+        CancellationToken token)
+    {
+        // Retry up to 3 times for transient errors
+        if (attempts <= 3 && IsTransient(exception))
+        {
+            _logger.LogWarning(exception, "Transient error on attempt {Attempt} for message {MessageId}, retrying.", attempts, messageEnvelope.Id);
+            return ValueTask.FromResult(MessageErrorHandlerResponse.Retry);
+        }
+
+        // Give up after max retries
+        _logger.LogError(exception, "Failed to process message {MessageId} after {Attempt} attempts.", messageEnvelope.Id, attempts);
+        return ValueTask.FromResult(MessageErrorHandlerResponse.Failed);
+    }
+
+    private static bool IsTransient(Exception ex) =>
+        ex is TimeoutException or HttpRequestException;
+}
+```
+
+Register the error handler during startup:
+```csharp
+services.AddAWSMessageBus(builder =>
+{
+    builder.AddSQSPoller("https://sqs.us-west-2.amazonaws.com/012345678910/MyAppProd");
+    builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+
+    // Register an error handler for retry/failure control
+    builder.AddMessageErrorHandler<TransientErrorHandler>();
+});
+```
+
+The `MessageErrorHandlerResponse` enum supports three responses:
+* `Retry` - Re-execute the entire processing pipeline (middleware + handler) in a new DI scope. This is useful for transient errors since scoped services like `DbContext` will be recreated.
+* `Failed` - Return a failed status. The message will remain in the queue for reprocessing or dead-letter queue routing.
+* `Success` - Treat the message as successfully processed. The framework will delete it from the queue. This is useful for routing poison messages to a dead-letter queue.
+
 ## Handling Messages in a Long-Running Process
 You can call `AddSQSPoller` with an SQS queue URL to start a long-running [`BackgroundService`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.hosting.backgroundservice) that will continuously poll the queue and process messages.
 
