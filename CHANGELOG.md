@@ -1,3 +1,8 @@
+## Release 2026-07-31
+
+### AWS.Messaging (1.5.0)
+* Expose ApproximateReceiveCount on SQSMetadata so handlers can distinguish first deliveries from redeliveries.
+
 ## Release 2026-07-30
 
 ### AWS.Messaging (1.4.0)
