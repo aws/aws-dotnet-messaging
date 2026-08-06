@@ -129,10 +129,10 @@ public class EventBridgePublisherTests : IAsyncLifetime
         var receiveMessageResponse = await _sqsClient.ReceiveMessageAsync(_sqsQueueUrl);
         var message = Assert.Single(receiveMessageResponse.Messages);
 
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
 
-        // Use the EnvelopeSerializer to convert the message
-        var result = await envelopeSerializer.ConvertToEnvelopeAsync(message);
+        // Use the EnvelopeDeserializer to convert the message
+        var result = await envelopeDeserializer.ConvertToEnvelopeAsync(message);
         var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
 
         Assert.NotNull(envelope);

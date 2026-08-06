@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Implement Utf8JsonReader based deserializer"
+      ]
+    }
+  ]
+}

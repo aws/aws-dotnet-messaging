@@ -5,11 +5,17 @@ using AWS.Messaging.Configuration;
 using System.Buffers;
 using System.Diagnostics;
 
+namespace AWS.Messaging.Serialization.Helpers;
+
 /// <summary>
-/// https://gist.github.com/ahsonkhan/c76a1cc4dc7107537c3fdc0079a68b35
-/// Standard ArrayBufferWriter is not using pooled memory
+/// An <see cref="IBufferWriter{T}"/> backed by <see cref="ArrayPool{T}"/> rented memory.
+/// Unlike <see cref="ArrayBufferWriter{T}"/>, this implementation avoids GC pressure by
+/// renting and returning pooled arrays.
 /// </summary>
-internal class RentArrayBufferWriter : IBufferWriter<byte>, IDisposable
+/// <remarks>
+/// Based on <see href="https://gist.github.com/ahsonkhan/c76a1cc4dc7107537c3fdc0079a68b35"/>.
+/// </remarks>
+internal sealed class RentArrayBufferWriter : IBufferWriter<byte>, IDisposable
 {
     private const int MINIMUM_BUFFER_SIZE = 256;
 

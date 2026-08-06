@@ -3,11 +3,10 @@
 
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
-using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization.Helpers;
-using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,7 +19,7 @@ namespace AWS.Messaging.Serialization;
 internal class EnvelopeSerializer : IEnvelopeSerializer
 {
     private Uri? MessageSource { get; set; }
-    
+
     // Pre-encoded property names to avoid repeated encoding and allocations
     private static readonly JsonEncodedText s_idProp = JsonEncodedText.Encode("id");
     private static readonly JsonEncodedText s_sourceProp = JsonEncodedText.Encode("source");
@@ -40,15 +39,6 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private readonly IMessageSerializerUtf8JsonWriter? _messageSerializerUtf8Json;
 
-    // Order matters for the SQS parser (must be last), but SNS and EventBridge parsers
-    // can be in any order since they check for different, mutually exclusive properties
-    private static readonly IMessageParser[] _parsers = new IMessageParser[]
-    {
-        new SNSMessageParser(), // Checks for SNS-specific properties (Type, TopicArn)
-        new EventBridgeMessageParser(), // Checks for EventBridge properties (detail-type, detail)
-        new SQSMessageParser() // Fallback parser - must be last
-    };
-
     public EnvelopeSerializer(
         ILogger<EnvelopeSerializer> logger,
         IMessageConfiguration messageConfiguration,
@@ -64,9 +54,9 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _dateTimeHandler = dateTimeHandler;
         _messageIdGenerator = messageIdGenerator;
         _messageSourceHandler = messageSourceHandler;
+        _serviceProvider = serviceProvider;
 
         _messageSerializerUtf8Json = messageSerializer as IMessageSerializerUtf8JsonWriter;
-        _serviceProvider = serviceProvider;
     }
 
     /// <inheritdoc/>
@@ -82,10 +72,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             throw new FailedToCreateMessageEnvelopeException($"Failed to create a message envelope because a valid publisher mapping for message type '{typeof(T)}' does not exist.");
         }
 
-        if (MessageSource is null)
-        {
-            MessageSource = await _messageSourceHandler.ComputeMessageSource();
-        }
+        MessageSource ??= await _messageSourceHandler.ComputeMessageSource();
 
         return new MessageEnvelope<T>
         {
@@ -166,7 +153,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             writer.WriteEndObject();
             writer.Flush();
 
-            var jsonString = System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+            var jsonString = Encoding.UTF8.GetString(buffer.WrittenSpan);
             var serializedMessage = await InvokePostSerializationCallback(jsonString);
 
             if (_messageConfiguration.LogMessageContent)
@@ -191,38 +178,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         }
     }
 
-    /// <inheritdoc/>
-    public async ValueTask<ConvertToEnvelopeResult> ConvertToEnvelopeAsync(Message sqsMessage)
-    {
-        try
-        {
-            // Get the raw envelope JSON and metadata from the appropriate wrapper (SNS/EventBridge/SQS)
-            var (envelopeJson, metadata) = await ParseOuterWrapper(sqsMessage);
-
-            // Create and populate the envelope with the correct type
-            var (envelope, subscriberMapping) = DeserializeEnvelope(envelopeJson);
-
-            // Add metadata from outer wrapper
-            envelope.SQSMetadata = metadata.SQSMetadata;
-            envelope.SNSMetadata = metadata.SNSMetadata;
-            envelope.EventBridgeMetadata = metadata.EventBridgeMetadata;
-
-            await InvokePostDeserializationCallback(envelope);
-            return new ConvertToEnvelopeResult(envelope, subscriberMapping);
-        }
-        catch (JsonException) when (!_messageConfiguration.LogMessageContent)
-        {
-            _logger.LogError("Failed to create a {MessageEnvelopeName}", nameof(MessageEnvelope));
-            throw new FailedToCreateMessageEnvelopeException($"Failed to create {nameof(MessageEnvelope)}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create a {MessageEnvelopeName}", nameof(MessageEnvelope));
-            throw new FailedToCreateMessageEnvelopeException($"Failed to create {nameof(MessageEnvelope)}", ex);
-        }
-    }
-
-    private bool IsJsonContentType(string? dataContentType)
+    private static bool IsJsonContentType(string? dataContentType)
     {
         if (string.IsNullOrWhiteSpace(dataContentType))
         {
@@ -230,10 +186,14 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             return true;
         }
 
+        // Fast path: exact match with interned constant (most common case)
+        if (ReferenceEquals(dataContentType, CloudEventConstants.ApplicationJson))
+            return true;
+
         ReadOnlySpan<char> contentType = dataContentType.AsSpan().Trim();
 
         // Remove parameters (anything after ';')
-        int semicolonIndex = contentType.IndexOf(';');
+        var semicolonIndex = contentType.IndexOf(';');
         if (semicolonIndex >= 0)
             contentType = contentType.Slice(0, semicolonIndex).Trim();
 
@@ -242,7 +202,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
             return true;
 
         // Find the '/' separator
-        int slashIndex = contentType.IndexOf('/');
+        var slashIndex = contentType.IndexOf('/');
         if (slashIndex < 0
             || slashIndex == contentType.Length - 1
             || slashIndex != contentType.LastIndexOf('/'))
@@ -268,185 +228,15 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         "data"
     }.ToFrozenSet();
 
-    private (MessageEnvelope Envelope, SubscriberMapping Mapping) DeserializeEnvelope(string envelopeString)
+    private ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
     {
-        using var document = JsonDocument.Parse(envelopeString);
-        var root = document.RootElement;
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return default;
 
-        // Get the message type and lookup mapping first
-        var messageType = root.GetProperty("type").GetString() ?? throw new InvalidDataException("Message type identifier not found in envelope");
-        var subscriberMapping = GetAndValidateSubscriberMapping(messageType);
-
-        var envelope = subscriberMapping.MessageEnvelopeFactory.Invoke();
-
-        try
-        {
-            // Set envelope properties
-            envelope.Id = JsonPropertyHelper.GetRequiredProperty(root, "id", element => element.GetString()!);
-            envelope.Source = JsonPropertyHelper.GetRequiredProperty(root, "source", element => new Uri(element.GetString()!, UriKind.RelativeOrAbsolute));
-            envelope.Version = JsonPropertyHelper.GetRequiredProperty(root, "specversion", element => element.GetString()!);
-            envelope.MessageTypeIdentifier = JsonPropertyHelper.GetRequiredProperty(root, "type", element => element.GetString()!);
-            envelope.TimeStamp = JsonPropertyHelper.GetRequiredProperty(root, "time", element => element.GetDateTimeOffset());
-            envelope.DataContentType = JsonPropertyHelper.GetStringProperty(root, "datacontenttype");
-
-            // Handle metadata - copy any properties that aren't standard envelope properties
-            foreach (var property in root.EnumerateObject())
-            {
-                if (!s_knownEnvelopeProperties.Contains(property.Name))
-                {
-                    envelope.Metadata[property.Name] = property.Value.Clone();
-                }
-            }
-
-            // Deserialize the message content using the custom serializer
-            var dataContent = JsonPropertyHelper.GetRequiredProperty(root, "data", element =>
-                IsJsonContentType(envelope.DataContentType)
-                    ? element.GetRawText()
-                    : element.GetString()!);
-            var message = _messageSerializer.Deserialize(dataContent, subscriberMapping.MessageType);
-            envelope.SetMessage(message);
-
-            return (envelope, subscriberMapping);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to deserialize or validate MessageEnvelope");
-            throw new InvalidDataException("MessageEnvelope instance is not valid", ex);
-        }
+        return InvokePreSerializationCallbackAsync(messageEnvelope);
     }
 
-    private async Task<(string MessageBody, MessageMetadata Metadata)> ParseOuterWrapper(Message sqsMessage)
-    {
-        sqsMessage.Body = await InvokePreDeserializationCallback(sqsMessage.Body);
-
-        // Example 1: SNS-wrapped message in SQS
-        /*
-        sqsMessage.Body = {
-            "Type": "Notification",
-            "MessageId": "abc-123",
-            "TopicArn": "arn:aws:sns:us-east-1:123456789012:MyTopic",
-            "Message": {
-                "id": "order-123",
-                "source": "com.myapp.orders",
-                "type": "OrderCreated",
-                "time": "2024-03-21T10:00:00Z",
-                "data": {
-                    "orderId": "12345",
-                    "amount": 99.99
-                }
-            }
-        }
-        */
-
-        // Example 2: Raw SQS message
-        /*
-        sqsMessage.Body = {
-            "id": "order-123",
-            "source": "com.myapp.orders",
-            "type": "OrderCreated",
-            "time": "2024-03-21T10:00:00Z",
-            "data": {
-                "orderId": "12345",
-                "amount": 99.99
-            }
-        }
-        */
-
-        var document = JsonDocument.Parse(sqsMessage.Body);
-
-        try
-        {
-            string currentMessageBody = sqsMessage.Body;
-            var combinedMetadata = new MessageMetadata();
-
-            // Try each parser in order
-            foreach (var parser in _parsers.Where(p => p.CanParse(document.RootElement)))
-            {
-                // Example 1 (SNS message) flow:
-                // 1. SNSMessageParser.CanParse = true (finds "Type": "Notification")
-                // 2. parser.Parse extracts inner message and SNS metadata
-                // 3. messageBody = contents of "Message" field
-                // 4. metadata contains SNS information (TopicArn, MessageId, etc.)
-
-                // Example 2 (Raw SQS) flow:
-                // 1. SNSMessageParser.CanParse = false (no SNS properties)
-                // 2. EventBridgeMessageParser.CanParse = false (no EventBridge properties)
-                // 3. SQSMessageParser.CanParse = true (fallback)
-                // 4. messageBody = original message
-                // 5. metadata contains just SQS information
-                var (messageBody, metadata) = parser.Parse(document.RootElement, sqsMessage);
-
-                // Update the message body if this parser extracted an inner message
-                if (!string.IsNullOrEmpty(messageBody))
-                {
-                    // For Example 1:
-                    // - Updates currentMessageBody to inner message
-                    // - Creates new JsonElement for next parser to check
-
-                    // For Example 2:
-                    // - This block runs but messageBody is same as original
-                    currentMessageBody = messageBody;
-                    document.Dispose();
-                    document = JsonDocument.Parse(messageBody);
-                }
-
-                // Combine metadata
-                if (metadata.SQSMetadata != null) combinedMetadata.SQSMetadata = metadata.SQSMetadata;
-                if (metadata.SNSMetadata != null) combinedMetadata.SNSMetadata = metadata.SNSMetadata;
-                if (metadata.EventBridgeMetadata != null) combinedMetadata.EventBridgeMetadata = metadata.EventBridgeMetadata;
-            }
-
-            // Example 1 final return:
-            // MessageBody = {
-            //     "id": "order-123",
-            //     "source": "com.myapp.orders",
-            //     "type": "OrderCreated",
-            //     "time": "2024-03-21T10:00:00Z",
-            //     "data": { ... }
-            // }
-            // Metadata = {
-            //     SNSMetadata: { TopicArn: "arn:aws...", MessageId: "abc-123" }
-            // }
-
-            // Example 2 final return:
-            // MessageBody = {
-            //     "id": "order-123",
-            //     "source": "com.myapp.orders",
-            //     "type": "OrderCreated",
-            //     "time": "2024-03-21T10:00:00Z",
-            //     "data": { ... }
-            // }
-            // Metadata = { } // Just basic SQS metadata
-
-            return (currentMessageBody, combinedMetadata);
-        }
-        finally
-        {
-            document.Dispose();
-        }
-    }
-
-    private SubscriberMapping GetAndValidateSubscriberMapping(string messageTypeIdentifier)
-    {
-        var subscriberMapping = _messageConfiguration.GetSubscriberMapping(messageTypeIdentifier);
-        if (subscriberMapping is null)
-        {
-            var availableMappings = string.Join(", ",
-                _messageConfiguration.SubscriberMappings.Select(m => m.MessageTypeIdentifier));
-
-            _logger.LogError(
-                "'{MessageTypeIdentifier}' is not a valid subscriber mapping. Available mappings: {AvailableMappings}",
-                messageTypeIdentifier,
-                string.IsNullOrEmpty(availableMappings) ? "none" : availableMappings);
-
-            throw new InvalidDataException(
-                $"'{messageTypeIdentifier}' is not a valid subscriber mapping. " +
-                $"Available mappings: {(string.IsNullOrEmpty(availableMappings) ? "none" : availableMappings)}");
-        }
-        return subscriberMapping;
-    }
-
-    private async ValueTask InvokePreSerializationCallback(MessageEnvelope messageEnvelope)
+    private async ValueTask InvokePreSerializationCallbackAsync(MessageEnvelope messageEnvelope)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
@@ -463,29 +253,20 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         }
     }
 
-    private async ValueTask<string> InvokePostSerializationCallback(string message)
+    private ValueTask<string> InvokePostSerializationCallback(string message)
+    {
+        if (_messageConfiguration.SerializationCallbacks.Count == 0)
+            return new ValueTask<string>(message);
+
+        return InvokePostSerializationCallbackAsync(message);
+    }
+
+    private async ValueTask<string> InvokePostSerializationCallbackAsync(string message)
     {
         foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
         {
             message = await serializationCallback.PostSerializationAsync(message);
         }
         return message;
-    }
-
-    private async ValueTask<string> InvokePreDeserializationCallback(string message)
-    {
-        foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
-        {
-            message = await serializationCallback.PreDeserializationAsync(message);
-        }
-        return message;
-    }
-
-    private async ValueTask InvokePostDeserializationCallback(MessageEnvelope messageEnvelope)
-    {
-        foreach (var serializationCallback in _messageConfiguration.SerializationCallbacks)
-        {
-            await serializationCallback.PostDeserializationAsync(messageEnvelope);
-        }
     }
 }

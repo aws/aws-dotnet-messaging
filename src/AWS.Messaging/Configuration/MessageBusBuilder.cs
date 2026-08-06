@@ -11,6 +11,7 @@ using AWS.Messaging.Publishers.EventBridge;
 using AWS.Messaging.Publishers.SNS;
 using AWS.Messaging.Publishers.SQS;
 using AWS.Messaging.Serialization;
+using AWS.Messaging.Serialization.Parsers;
 using AWS.Messaging.Services;
 using AWS.Messaging.Services.Backoff;
 using AWS.Messaging.Services.Backoff.Policies;
@@ -428,11 +429,17 @@ public class MessageBusBuilder : IMessageBusBuilder
 
         _serviceCollection.TryAddSingleton(_messageConfiguration.PollingControlToken);
         _serviceCollection.TryAddSingleton<IMessageConfiguration>(_messageConfiguration);
-        
+
+        // Wrapper readers (order is irrelevant — classification is bitmap-based)
+        // Use TryAddEnumerable to ensure multiple implementations of IWrapperReader are registered
+        _serviceCollection.TryAddEnumerable(ServiceDescriptor.Singleton<IWrapperReader, SNSWrapperReader>());
+        _serviceCollection.TryAddEnumerable(ServiceDescriptor.Singleton<IWrapperReader, EventBridgeWrapperReader>());
+        _serviceCollection.TryAddSingleton<ISQSWrapperReader, SQSWrapperReader>();
+        _serviceCollection.TryAddSingleton<IMessageTypeClassifier, MessageTypeClassifier>();
+
         _serviceCollection.TryAddSingleton<IEnvelopeSerializer, EnvelopeSerializer>();
+        _serviceCollection.TryAddSingleton<IEnvelopeDeserializer, EnvelopeDeserializer>();
         _serviceCollection.TryAddSingleton<IMessageSerializer, MessageSerializer>();
-
-
         _serviceCollection.TryAddSingleton<IDateTimeHandler, DateTimeHandler>();
         _serviceCollection.TryAddSingleton<IMessageIdGenerator, MessageIdGenerator>();
         _serviceCollection.TryAddSingleton<IAWSClientProvider, AWSClientProvider>();

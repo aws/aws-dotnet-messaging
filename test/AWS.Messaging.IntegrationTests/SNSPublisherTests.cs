@@ -73,11 +73,11 @@ public class SNSPublisherTests : IAsyncLifetime
         var snsEnvelope = JsonSerializer.Deserialize<SNSEnvelope>(message.Body);
         Assert.NotNull(snsEnvelope);
 
-        // Get the EnvelopeSerializer from the service provider
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        // Get the EnvelopeDeserializer from the service provider
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
 
-        // Use the EnvelopeSerializer to convert the message
-        var result = await envelopeSerializer.ConvertToEnvelopeAsync(message);
+        // Use the EnvelopeDeserializer to convert the message
+        var result = await envelopeDeserializer.ConvertToEnvelopeAsync(message);
         var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
 
         Assert.NotNull(envelope);

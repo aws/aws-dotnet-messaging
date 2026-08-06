@@ -12,14 +12,22 @@ namespace AWS.Messaging.Configuration;
 /// </summary>
 public class MessageConfiguration : IMessageConfiguration
 {
+    // Dictionary caches for O(1) lookups, built lazily on first query.
+    // Mappings are only added during startup (MessageBusBuilder.Build) and
+    // never modified at runtime, so lazy initialization is safe.
+    private Dictionary<Type, PublisherMapping>? _publisherMappingsByType;
+    private Dictionary<Type, SubscriberMapping>? _subscriberMappingsByType;
+    private Dictionary<string, SubscriberMapping>? _subscriberMappingsById;
+
     /// <inheritdoc/>
     public IList<PublisherMapping> PublisherMappings { get; } = new List<PublisherMapping>();
 
     /// <inheritdoc/>
     public PublisherMapping? GetPublisherMapping(Type messageType)
     {
-        var publisherMapping = PublisherMappings.FirstOrDefault(x => messageType == x.MessageType);
-        return publisherMapping;
+        _publisherMappingsByType ??= BuildPublisherIndex();
+        _publisherMappingsByType.TryGetValue(messageType, out var mapping);
+        return mapping;
     }
 
     /// <inheritdoc/>
@@ -28,15 +36,47 @@ public class MessageConfiguration : IMessageConfiguration
     /// <inheritdoc/>
     public SubscriberMapping? GetSubscriberMapping(Type messageType)
     {
-        var subscriberMapping = SubscriberMappings.FirstOrDefault(x => messageType == x.MessageType);
-        return subscriberMapping;
+        _subscriberMappingsByType ??= BuildSubscriberTypeIndex();
+        _subscriberMappingsByType.TryGetValue(messageType, out var mapping);
+        return mapping;
     }
 
     /// <inheritdoc/>
     public SubscriberMapping? GetSubscriberMapping(string messageTypeIdentifier)
     {
-        var subscriberMapping = SubscriberMappings.FirstOrDefault(x => messageTypeIdentifier == x.MessageTypeIdentifier);
-        return subscriberMapping;
+        _subscriberMappingsById ??= BuildSubscriberIdIndex();
+        _subscriberMappingsById.TryGetValue(messageTypeIdentifier, out var mapping);
+        return mapping;
+    }
+
+    private Dictionary<Type, PublisherMapping> BuildPublisherIndex()
+    {
+        var dict = new Dictionary<Type, PublisherMapping>(PublisherMappings.Count);
+        foreach (var mapping in PublisherMappings)
+        {
+            dict.TryAdd(mapping.MessageType, mapping);
+        }
+        return dict;
+    }
+
+    private Dictionary<Type, SubscriberMapping> BuildSubscriberTypeIndex()
+    {
+        var dict = new Dictionary<Type, SubscriberMapping>(SubscriberMappings.Count);
+        foreach (var mapping in SubscriberMappings)
+        {
+            dict.TryAdd(mapping.MessageType, mapping);
+        }
+        return dict;
+    }
+
+    private Dictionary<string, SubscriberMapping> BuildSubscriberIdIndex()
+    {
+        var dict = new Dictionary<string, SubscriberMapping>(SubscriberMappings.Count, StringComparer.Ordinal);
+        foreach (var mapping in SubscriberMappings)
+        {
+            dict.TryAdd(mapping.MessageTypeIdentifier, mapping);
+        }
+        return dict;
     }
 
     /// <inheritdoc/>

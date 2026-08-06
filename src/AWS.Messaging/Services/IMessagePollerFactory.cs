@@ -69,19 +69,17 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
 
             var scopedConfiguration = new SingleTypeMessageConfiguration(messageConfiguration, mapping);
 
-            var scopedEnvelopeSerializer = ActivatorUtilities.CreateInstance<EnvelopeSerializer>(_serviceProvider, scopedConfiguration);
+            var scopedEnvelopeDeserializer = ActivatorUtilities.CreateInstance<EnvelopeDeserializer>(_serviceProvider, scopedConfiguration);
 
-            IEnvelopeSerializer serializerToUse = scopedEnvelopeSerializer;
+            IEnvelopeDeserializer deserializerToUse = scopedEnvelopeDeserializer;
             if (singleTypeSQSPollerConfiguration.MessageEnvelopeMode == MessageEnvelopeMode.NotSupported)
             {
-                serializerToUse = ActivatorUtilities.CreateInstance<SingleTypeSqsPollerEnvelopeSerializer>(
+                deserializerToUse = ActivatorUtilities.CreateInstance<SingleTypeSqsPollerEnvelopeDeserializer>(
                     _serviceProvider,
-                    scopedEnvelopeSerializer,
-                    mapping,
-                    singleTypeSQSPollerConfiguration.MessageEnvelopeMode);
+                    mapping);
             }
 
-            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, serializerToUse);
+            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, deserializerToUse);
         }
         else if(pollerConfiguration is SQSMessagePollerConfiguration sqsPollerConfiguration)
         {

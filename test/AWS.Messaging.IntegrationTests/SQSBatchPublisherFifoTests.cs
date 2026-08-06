@@ -84,10 +84,10 @@ public class SQSBatchPublisherFifoTests : IAsyncLifetime
 
         Assert.Equal(5, receivedMessages.Count);
 
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
         foreach (var receivedMessage in receivedMessages)
         {
-            var result = await envelopeSerializer.ConvertToEnvelopeAsync(receivedMessage);
+            var result = await envelopeDeserializer.ConvertToEnvelopeAsync(receivedMessage);
             var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
 
             Assert.NotNull(envelope);
@@ -143,11 +143,11 @@ public class SQSBatchPublisherFifoTests : IAsyncLifetime
 
         Assert.Equal(4, receivedMessages.Count);
 
-        var envelopeSerializer = _serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var envelopeDeserializer = _serviceProvider.GetRequiredService<IEnvelopeDeserializer>();
         var messageDescriptions = new List<string>();
         foreach (var receivedMessage in receivedMessages)
         {
-            var result = await envelopeSerializer.ConvertToEnvelopeAsync(receivedMessage);
+            var result = await envelopeDeserializer.ConvertToEnvelopeAsync(receivedMessage);
             var envelope = result.Envelope as MessageEnvelope<ChatMessage>;
             Assert.NotNull(envelope);
             Assert.NotNull(envelope.Message);
