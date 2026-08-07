@@ -185,11 +185,11 @@ namespace AWS.Messaging.UnitTests
             mockSQSMessageCommunication.VerifyDeleteMessagesAsyncWasCalledWith(earlyMessage, Times.Once());
             mockSQSMessageCommunication.VerifyDeleteMessagesAsyncWasCalledWith(laterMessage, Times.Once());
 
-            // Since each message handler takes 4 seconds, verify that the visibility was extended for each
-            // message while its handler was still running. We assert that each message was included in at
+            // Since each message handler takes 4 seconds, verify that the manager extended the visibility timeout for each message
+            // at least once during processing. We assert that each message was included in at
             // least one extension call rather than pinning down the exact batching: the manager uses a single
             // shared heartbeat loop, so under scheduling jitter both messages can legitimately become eligible
-            // on the same tick and be extended together. The staggered start times below only describe the
+            // on the same tick and be extended together. The staggered start times below describe the
             // idealized timeline, not a guarantee that the two are never batched.
             // T  | T+0   | T+1    | T+2    | T+3    | T+4    | T+5    | T + 6  | T + 7  |
             // M1 | Start |        | Extend | Extend | Finish |        |        |        |
