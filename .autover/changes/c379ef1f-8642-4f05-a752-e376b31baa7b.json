@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Added an optional per-poller PollingControlToken on SQSMessagePollerOptions, allowing SQS pollers on the same message bus to be paused and resumed independently. When not set, the poller continues to use the bus-scoped token configured via ConfigurePollingControlToken."
+      ]
+    }
+  ]
+}
