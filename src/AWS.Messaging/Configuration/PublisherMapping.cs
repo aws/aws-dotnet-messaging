@@ -20,6 +20,9 @@ public class PublisherMapping
     /// <inheritdoc/>
     public IMessagePublisherConfiguration PublisherConfiguration { get; init; }
 
+    /// <inheritdoc/>
+    public Func<IServiceProvider, object, object, CancellationToken, ValueTask>? ConfigureOptions { get; init; } = null;
+
     /// <summary>
     /// Creates a mapping object for the specified message type as well as the AWS service to publisher to.
     /// This object will be used internally by the framework to properly route the user-defined message.
@@ -28,7 +31,8 @@ public class PublisherMapping
     /// <param name="publisherConfiguration">The publisher configuration</param>
     /// <param name="publishTargetType">The type of publisher to use</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    public PublisherMapping(Type messageType, IMessagePublisherConfiguration publisherConfiguration, string publishTargetType, string? messageTypeIdentifier = null)
+    /// <param name="configureOptions">An optional function to configure publisher-specific options.</param>
+    public PublisherMapping(Type messageType, IMessagePublisherConfiguration publisherConfiguration, string publishTargetType, string? messageTypeIdentifier = null, Func<IServiceProvider, object, object, CancellationToken, ValueTask>? configureOptions = null)
     {
         PublishTargetType = publishTargetType;
         MessageType = messageType;
@@ -37,5 +41,6 @@ public class PublisherMapping
             messageTypeIdentifier :
             messageType.FullName ?? throw new InvalidMessageTypeException("Unable to retrieve the Full Name of the provided Message Type.");
         PublisherConfiguration = publisherConfiguration;
+        ConfigureOptions = configureOptions;
     }
 }
