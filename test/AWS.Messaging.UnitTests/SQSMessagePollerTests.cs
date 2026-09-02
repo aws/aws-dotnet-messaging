@@ -19,6 +19,7 @@ using Moq;
 using Xunit;
 using AWS.Messaging.Tests.Common.Services;
 using AWS.Messaging.SQS;
+using AWS.Messaging.Services.Backoff;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
 
@@ -541,6 +542,85 @@ public class SQSMessagePollerTests
         });
     }
 
+
+    /// <summary>
+    /// Tests that when a fire-and-forget message processing task faults (for example because the
+    /// handler could not be resolved and <see cref="InvalidMessageHandlerSignatureException"/> propagated
+    /// out of <see cref="IMessageManager.ProcessMessageAsync"/>), the SQS poller observes and logs the
+    /// exception rather than letting it become an unobserved task exception that is silently discarded.
+    /// This is the SQS/ECS counterpart to the Lambda path, which awaits its tasks and logs failures.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_StandardMode_FaultedProcessMessageTask_IsObservedAndLogged()
+    {
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddLogging(x => x.AddInMemoryLogger());
+
+        serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPoller(TEST_QUEUE_URL);
+            builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+        });
+        serviceCollection.AddSingleton(new Mock<IAmazonSQS>().Object);
+
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+        _inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
+
+        var logger = serviceProvider.GetRequiredService<ILogger<SQSMessagePoller>>();
+        var awsClientProvider = serviceProvider.GetRequiredService<IAWSClientProvider>();
+        var envelopeSerializer = serviceProvider.GetRequiredService<IEnvelopeSerializer>();
+        var backoffHandler = serviceProvider.GetRequiredService<IBackoffHandler>();
+
+        // A message manager whose ProcessMessageAsync returns a faulted task, mimicking an
+        // InvalidMessageHandlerSignatureException propagating out of the message manager.
+        var expectedException = new InvalidMessageHandlerSignatureException("Unable to resolve a handler.");
+        var mockMessageManager = new Mock<IMessageManager>();
+        mockMessageManager
+            .Setup(x => x.ProcessMessageAsync(It.IsAny<MessageEnvelope>(), It.IsAny<SubscriberMapping>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromException(expectedException));
+
+        var mockMessageManagerFactory = new Mock<IMessageManagerFactory>();
+        mockMessageManagerFactory
+            .Setup(x => x.CreateMessageManager(It.IsAny<ISQSMessageCommunication>(), It.IsAny<MessageManagerConfiguration>()))
+            .Returns(mockMessageManager.Object);
+
+        var poller = new SQSMessagePoller(
+            logger,
+            mockMessageManagerFactory.Object,
+            awsClientProvider,
+            new SQSMessagePollerConfiguration(TEST_QUEUE_URL),
+            envelopeSerializer,
+            backoffHandler,
+            new PollingControlToken());
+
+        var subscriberMapping = SubscriberMapping.Create<ChatMessageHandler, ChatMessage>();
+        var messageEnvelopeResults = new List<ConvertToEnvelopeResult>
+        {
+            new ConvertToEnvelopeResult(new MessageEnvelope<ChatMessage> { Id = "1" }, subscriberMapping)
+        };
+
+        // Invoke the private ProcessInStandardMode, which fire-and-forgets the processing task
+        var processInStandardMode = typeof(SQSMessagePoller).GetMethod("ProcessInStandardMode", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(processInStandardMode);
+        processInStandardMode!.Invoke(poller, new object[] { messageEnvelopeResults, CancellationToken.None });
+
+        // The fault is observed on a continuation, so poll briefly for the logged error
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!_inMemoryLogger.Logs.Any(x =>
+            x.LogLevel == LogLevel.Error &&
+            x.Exception is AggregateException agg && agg.InnerExceptions.Any(inner => inner is InvalidMessageHandlerSignatureException)))
+        {
+            if (cts.IsCancellationRequested)
+            {
+                Assert.Fail("Timed out waiting for the faulted task exception to be observed and logged");
+            }
+            await Task.Delay(25);
+        }
+
+        Assert.Contains(_inMemoryLogger.Logs, x =>
+            x.LogLevel == LogLevel.Error &&
+            x.Exception is AggregateException agg && agg.InnerExceptions.Any(inner => inner is InvalidMessageHandlerSignatureException));
+    }
 
     /// <summary>
     /// Helper function that initializes and starts a <see cref="MessagePumpService"/> with
