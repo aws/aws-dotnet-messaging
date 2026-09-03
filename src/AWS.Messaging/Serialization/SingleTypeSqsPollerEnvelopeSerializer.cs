@@ -4,7 +4,6 @@
 using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization.Handlers;
-using AWS.Messaging.Services;
 using Microsoft.Extensions.Logging;
 
 namespace AWS.Messaging.Serialization;
@@ -20,7 +19,7 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
     private readonly ILogger<SingleTypeSqsPollerEnvelopeSerializer> _logger;
     private readonly IEnvelopeSerializer _envelopedMessageSerializer;
     private readonly IMessageSerializer _messageSerializer;
-    private readonly IDateTimeHandler _dateTimeHandler;
+    private readonly TimeProvider _timeProvider;
     private readonly SubscriberMapping _subscriberMapping;
     private readonly MessageEnvelopeMode _messageEnvelopeMode;
 
@@ -28,14 +27,14 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
         ILogger<SingleTypeSqsPollerEnvelopeSerializer> logger,
         IEnvelopeSerializer envelopedMessageSerializer,
         IMessageSerializer messageSerializer,
-        IDateTimeHandler dateTimeHandler,
+        TimeProvider timeProvider,
         SubscriberMapping subscriberMapping,
         MessageEnvelopeMode messageEnvelopeMode)
     {
         _logger = logger;
         _envelopedMessageSerializer = envelopedMessageSerializer;
         _messageSerializer = messageSerializer;
-        _dateTimeHandler = dateTimeHandler;
+        _timeProvider = timeProvider;
         _subscriberMapping = subscriberMapping;
         _messageEnvelopeMode = messageEnvelopeMode;
     }
@@ -76,7 +75,7 @@ internal sealed class SingleTypeSqsPollerEnvelopeSerializer : IEnvelopeSerialize
         envelope.Source = new Uri("/aws/messaging/raw", UriKind.Relative);
         envelope.Version = Constants.CLOUD_EVENT_SPEC_VERSION;
         envelope.MessageTypeIdentifier = _subscriberMapping.MessageTypeIdentifier;
-        envelope.TimeStamp = _dateTimeHandler.GetUtcNow();
+        envelope.TimeStamp = _timeProvider.GetUtcNow();
         envelope.DataContentType = "application/json";
 
         try
