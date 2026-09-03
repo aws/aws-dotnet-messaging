@@ -12,6 +12,7 @@ using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
 using AWS.Messaging.IntegrationTests.Handlers;
 using AWS.Messaging.Services;
+using AWS.Messaging.Tests.Common;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 
@@ -27,8 +28,9 @@ public class SNSEndToEndTests : IAsyncLifetime
 
     public SNSEndToEndTests()
     {
-        _sqsClient = new AmazonSQSClient();
-        _snsClient = new AmazonSimpleNotificationServiceClient();
+        var backend = new TestAwsBackend();
+        _sqsClient = backend.CreateSqsClient();
+        _snsClient = backend.CreateSnsClient();
         _serviceProvider = default!;
         _snsTopicArn = string.Empty;
         _sqsQueueUrl = string.Empty;
@@ -48,6 +50,8 @@ public class SNSEndToEndTests : IAsyncLifetime
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
         serviceCollection.AddSingleton<TempStorage<ChatMessage>>();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
+        serviceCollection.AddSingleton<IAmazonSimpleNotificationService>(_snsClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddSNSPublisher<ChatMessage>(_snsTopicArn);
@@ -80,7 +84,8 @@ public class SNSEndToEndTests : IAsyncLifetime
 
         var tempStorage = _serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await AsyncTestUtilities.WaitUntilAsync(() => tempStorage.Messages.Count >= 1, source.Token);
+        source.Cancel();
 
         var messageEnvelope = Assert.Single(tempStorage.Messages);
         Assert.False(string.IsNullOrEmpty(messageEnvelope.Id));

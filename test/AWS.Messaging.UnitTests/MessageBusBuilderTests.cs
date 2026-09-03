@@ -37,7 +37,10 @@ public class MessageBusBuilderTests
         _serviceCollection.AddLogging();
         _serviceCollection.AddDefaultAWSOptions(new AWSOptions
         {
-            Region = Amazon.RegionEndpoint.USWest2
+            Region = Amazon.RegionEndpoint.USWest2,
+            // These tests only assert DI wiring and never call AWS, so anonymous
+            // credentials keep them independent of ambient credential configuration.
+            Credentials = new Amazon.Runtime.AnonymousAWSCredentials()
         });
     }
 

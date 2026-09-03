@@ -7,8 +7,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Amazon.EventBridge.Model;
 using Amazon.EventBridge;
-using Amazon.SecurityToken.Model;
-using Amazon.SecurityToken;
 using Amazon.SQS.Model;
 using Amazon.SQS;
 using AWS.Messaging.IntegrationTests.Models;
@@ -16,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using AWS.Messaging.IntegrationTests.Handlers;
 using AWS.Messaging.Services;
+using AWS.Messaging.Tests.Common;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 
@@ -23,9 +22,9 @@ namespace AWS.Messaging.IntegrationTests;
 
 public class EventBridgeEndToEndTests : IAsyncLifetime
 {
+    private readonly TestAwsBackend _backend;
     private readonly IAmazonEventBridge _eventBridgeClient;
     private readonly IAmazonSQS _sqsClient;
-    private readonly IAmazonSecurityTokenService _stsClient;
     private ServiceProvider _serviceProvider;
     private string _eventBusArn;
     private string _resourceName;
@@ -33,9 +32,9 @@ public class EventBridgeEndToEndTests : IAsyncLifetime
 
     public EventBridgeEndToEndTests()
     {
-        _sqsClient = new AmazonSQSClient();
-        _eventBridgeClient = new AmazonEventBridgeClient();
-        _stsClient = new AmazonSecurityTokenServiceClient();
+        _backend = new TestAwsBackend();
+        _sqsClient = _backend.CreateSqsClient();
+        _eventBridgeClient = _backend.CreateEventBridgeClient();
         _serviceProvider = default!;
         _eventBusArn = string.Empty;
         _resourceName = string.Empty;
@@ -79,14 +78,14 @@ public class EventBridgeEndToEndTests : IAsyncLifetime
             });
         _eventBusArn = createEventBusResponse.EventBusArn;
 
-        var getCallerIdentityResponse = await _stsClient.GetCallerIdentityAsync(new GetCallerIdentityRequest());
+        var accountId = await _backend.GetAccountIdAsync();
         await _eventBridgeClient.PutRuleAsync(new PutRuleRequest
         {
             Name = _resourceName,
             EventBusName = _resourceName,
             EventPattern =
             @$"{{
-              ""account"": [""{getCallerIdentityResponse.Account}""],
+              ""account"": [""{accountId}""],
               ""source"": [""/aws/messaging""]
             }}"
         });
@@ -108,6 +107,8 @@ public class EventBridgeEndToEndTests : IAsyncLifetime
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
         serviceCollection.AddSingleton<TempStorage<ChatMessage>>();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
+        serviceCollection.AddSingleton<IAmazonEventBridge>(_eventBridgeClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddEventBridgePublisher<ChatMessage>(_eventBusArn);
@@ -140,7 +141,8 @@ public class EventBridgeEndToEndTests : IAsyncLifetime
 
         var tempStorage = _serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await AsyncTestUtilities.WaitUntilAsync(() => tempStorage.Messages.Count >= 1, source.Token);
+        source.Cancel();
 
         var messageEnvelope = Assert.Single(tempStorage.Messages);
         Assert.False(string.IsNullOrEmpty(messageEnvelope.Id));
