@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Retry SQS message deletion with backoff so transient failures (such as throttling) no longer cause already-processed messages to be redelivered."
+      ]
+    }
+  ]
+}

@@ -289,6 +289,104 @@ public class SQSMessagePollerTests
     }
 
     /// <summary>
+    /// Tests that a transient (non-fatal) exception thrown while deleting messages is retried
+    /// via the backoff handler rather than silently abandoning the delete, which would otherwise
+    /// leave the already-handled message to be redelivered by SQS.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_DeleteMessages_RetriesOnTransientException()
+    {
+        var client = new Mock<IAmazonSQS>();
+
+        var attempts = 0;
+        client.Setup(x => x.DeleteMessageBatchAsync(It.IsAny<DeleteMessageBatchRequest>(), It.IsAny<CancellationToken>()))
+            .Returns<DeleteMessageBatchRequest, CancellationToken>((request, token) =>
+            {
+                attempts++;
+                if (attempts == 1)
+                {
+                    // A throttling exception is non-fatal, so the delete should be retried
+                    throw new AmazonSQSException("Rate exceeded") { ErrorCode = "RequestThrottled" };
+                }
+
+                return Task.FromResult(new DeleteMessageBatchResponse { Failed = new List<BatchResultErrorEntry>() });
+            });
+
+        var messagePoller = CreateSQSMessagePoller(client) as ISQSMessageCommunication;
+        if (messagePoller == null)
+        {
+            Assert.Fail("Failed to cast message poller to ISQSMessageCommunication");
+        }
+
+        var messageEnvelopes = new List<MessageEnvelope>()
+        {
+            new MessageEnvelope<ChatMessage> { Id = "1", SQSMetadata = new SQSMetadata { ReceiptHandle ="rh1"} }
+        };
+
+        await messagePoller.DeleteMessagesAsync(messageEnvelopes);
+
+        // The first attempt threw a transient exception and the second succeeded
+        Assert.Equal(2, attempts);
+        client.Verify(x => x.DeleteMessageBatchAsync(It.IsAny<DeleteMessageBatchRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    /// <summary>
+    /// Tests that an exception that is fatal to the delete itself (for example, the receipt handle is
+    /// no longer valid because the message was already deleted) is neither retried nor rethrown to stop the poller.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_DeleteMessages_DoesNotRetryOrThrowOnDeleteFatalException()
+    {
+        var client = new Mock<IAmazonSQS>();
+
+        client.Setup(x => x.DeleteMessageBatchAsync(It.IsAny<DeleteMessageBatchRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ReceiptHandleIsInvalidException("The receipt handle is not valid"));
+
+        var messagePoller = CreateSQSMessagePoller(client) as ISQSMessageCommunication;
+        if (messagePoller == null)
+        {
+            Assert.Fail("Failed to cast message poller to ISQSMessageCommunication");
+        }
+
+        var messageEnvelopes = new List<MessageEnvelope>()
+        {
+            new MessageEnvelope<ChatMessage> { Id = "1", SQSMetadata = new SQSMetadata { ReceiptHandle ="rh1"} }
+        };
+
+        // Should not throw
+        await messagePoller.DeleteMessagesAsync(messageEnvelopes);
+
+        // Should not be retried since the delete can never succeed for this exception
+        client.Verify(x => x.DeleteMessageBatchAsync(It.IsAny<DeleteMessageBatchRequest>(), It.IsAny<CancellationToken>()), Times.Once());
+    }
+
+    /// <summary>
+    /// Tests that a fatal exception thrown while deleting messages is rethrown to stop the poller,
+    /// consistent with the receive path.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_DeleteMessages_RethrowsFatalException()
+    {
+        var client = new Mock<IAmazonSQS>();
+
+        client.Setup(x => x.DeleteMessageBatchAsync(It.IsAny<DeleteMessageBatchRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new QueueDoesNotExistException("The specified queue does not exist"));
+
+        var messagePoller = CreateSQSMessagePoller(client) as ISQSMessageCommunication;
+        if (messagePoller == null)
+        {
+            Assert.Fail("Failed to cast message poller to ISQSMessageCommunication");
+        }
+
+        var messageEnvelopes = new List<MessageEnvelope>()
+        {
+            new MessageEnvelope<ChatMessage> { Id = "1", SQSMetadata = new SQSMetadata { ReceiptHandle ="rh1"} }
+        };
+
+        await Assert.ThrowsAsync<QueueDoesNotExistException>(() => messagePoller.DeleteMessagesAsync(messageEnvelopes));
+    }
+
+    /// <summary>
     /// Tests that calling <see cref="IMessagePoller.ExtendMessageVisibilityTimeoutAsync"/> calls
     /// SQS's ChangeMessageVisibilityBatch with an expected request.
     /// </summary>

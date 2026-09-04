@@ -258,24 +258,48 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
 
         try
         {
-            var response = await _sqsClient.DeleteMessageBatchAsync(request, token);
-
-            if (response.Successful != null)
+            // Route the delete through the same backoff handler used for ReceiveMessagesAsync so that
+            // transient failures (e.g. throttling) are retried with backoff instead of being silently
+            // abandoned, which would leave the already-handled message to be redelivered by SQS.
+            await _backoffHandler.BackoffAsync<bool>(async () =>
             {
-                foreach (var successMessage in response.Successful)
+                DeleteMessageBatchResponse response;
+                try
                 {
-                    _logger.LogTrace("Deleted message {MessageId} from queue {SubscriberEndpoint} successfully", successMessage.Id, _configuration.SubscriberEndpoint);
+                    response = await _sqsClient.DeleteMessageBatchAsync(request, token);
                 }
-            }
+                catch (Exception ex) when (IsExceptionFatalToDelete(ex))
+                {
+                    // Exceptions that are fatal to the delete itself (e.g. the receipt handle is no
+                    // longer valid because the message was already deleted) should neither be retried
+                    // nor stop the poller. Swallow them here so the backoff handler treats this as a
+                    // completed attempt rather than a candidate for another retry.
+                    _logger.LogTrace(ex, "Skipping retry of delete for message(s) [{MessageIds}] from queue {SubscriberEndpoint} because the exception is fatal to the delete itself",
+                        string.Join(", ", messages.Select(x => x.Id)), _configuration.SubscriberEndpoint);
+                    return true;
+                }
 
-            if (response.Failed != null)
-            {
-                foreach (var failedMessage in response.Failed)
+                if (response.Successful != null)
                 {
-                    _logger.LogError("Failed to delete message {FailedMessageId} from queue {SubscriberEndpoint}: {FailedMessage}",
-                        failedMessage.Id, _configuration.SubscriberEndpoint, failedMessage.Message);
+                    foreach (var successMessage in response.Successful)
+                    {
+                        _logger.LogTrace("Deleted message {MessageId} from queue {SubscriberEndpoint} successfully", successMessage.Id, _configuration.SubscriberEndpoint);
+                    }
                 }
-            }
+
+                if (response.Failed != null)
+                {
+                    foreach (var failedMessage in response.Failed)
+                    {
+                        _logger.LogError("Failed to delete message {FailedMessageId} from queue {SubscriberEndpoint}: {FailedMessage}",
+                            failedMessage.Id, _configuration.SubscriberEndpoint, failedMessage.Message);
+                    }
+                }
+
+                return true;
+            },
+            _configuration,
+            token);
         }
         catch (AmazonSQSException ex)
         {
@@ -298,6 +322,22 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// Determines whether an exception thrown while deleting messages is fatal to the delete operation itself,
+    /// meaning the delete cannot succeed on a retry (for example, the receipt handle is no longer valid because
+    /// the message was already deleted). Such exceptions should neither be retried nor treated as fatal to the poller.
+    /// </summary>
+    /// <param name="exception">The exception thrown by <see cref="IAmazonSQS.DeleteMessageBatchAsync(DeleteMessageBatchRequest, CancellationToken)"/>.</param>
+    /// <returns>true if the exception means the delete can never succeed and should not be retried; otherwise false.</returns>
+    private static bool IsExceptionFatalToDelete(Exception exception)
+    {
+        return exception switch
+        {
+            ReceiptHandleIsInvalidException => true,
+            _ => false,
+        };
     }
 
     /// <inheritdoc/>
