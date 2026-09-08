@@ -44,9 +44,13 @@ public static class AWSUtilities
     /// so on Apple Silicon we deploy arm64 functions and on x64 hosts we deploy x86_64.
     /// </summary>
     public static string HostLambdaArchitecture =>
-        System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64
-            ? "arm64"
-            : "x86_64";
+        System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
+        {
+            System.Runtime.InteropServices.Architecture.X64 => "x86_64",
+            System.Runtime.InteropServices.Architecture.Arm64 => "arm64",
+            var other => throw new PlatformNotSupportedException(
+                $"Lambda functions cannot be built for the {other} host architecture; the Lambda integration tests must run on an x64 or arm64 host.")
+        };
 
     /// <summary>
     /// Creates a Lambda execution role if it doesn't already exist, using the AWS-provided AWSLambdaSQSQueueExecutionRole

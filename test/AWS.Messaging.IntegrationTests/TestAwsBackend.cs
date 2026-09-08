@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Amazon.CloudWatchLogs;
 using Amazon.EventBridge;
@@ -163,7 +164,7 @@ public sealed class TestAwsBackend
     /// The AWS account id that resources are created under: the bus's fixed account id
     /// in in-memory mode, otherwise the caller identity from STS.
     /// </summary>
-    public async Task<string> GetAccountIdAsync()
+    public async Task<string> GetAccountIdAsync(CancellationToken cancellationToken = default)
     {
         if (_bus is not null)
         {
@@ -173,7 +174,13 @@ public sealed class TestAwsBackend
         using var stsClient = Mode == TestAwsBackendMode.Floci
             ? new AmazonSecurityTokenServiceClient(FlociCredentials, ConfigureFloci(new AmazonSecurityTokenServiceConfig()))
             : new AmazonSecurityTokenServiceClient();
-        return (await stsClient.GetCallerIdentityAsync(new GetCallerIdentityRequest())).Account;
+        var identity = await stsClient.GetCallerIdentityAsync(new GetCallerIdentityRequest(), cancellationToken);
+        if (string.IsNullOrEmpty(identity.Account))
+        {
+            throw new InvalidOperationException($"STS GetCallerIdentity returned no account id for the {Mode} backend.");
+        }
+
+        return identity.Account;
     }
 }
 
