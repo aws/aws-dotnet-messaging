@@ -120,6 +120,119 @@ public class SQSMessagePollerTests
     }
 
     /// <summary>
+    /// Tests that a poller configured with its own stopped <see cref="SQSMessagePollerOptions.PollingControlToken"/>
+    /// does not poll SQS, even when no bus-scoped token is configured.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_PerPollerPollingControlStopped_DoesNotPollSQS()
+    {
+        var client = new Mock<IAmazonSQS>();
+        client.Setup(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceiveMessageResponse(), TimeSpan.FromMilliseconds(50));
+        var perPollerToken = new PollingControlToken
+        {
+            PollingWaitTime = TimeSpan.FromMilliseconds(25)
+        };
+        perPollerToken.StopPolling();
+
+        await RunSQSMessagePollerTest(client, options => options.PollingControlToken = perPollerToken);
+
+        client.Verify(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Tests that a poller's own <see cref="SQSMessagePollerOptions.PollingControlToken"/> takes precedence over the
+    /// bus-scoped token: a stopped per-poller token prevents polling even while the bus-scoped token is running.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_PerPollerToken_OverridesBusScopedToken()
+    {
+        var client = new Mock<IAmazonSQS>();
+        client.Setup(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceiveMessageResponse(), TimeSpan.FromMilliseconds(50));
+
+        // Bus-scoped token is running, but the per-poller token is stopped and must win.
+        var busScopedToken = new PollingControlToken
+        {
+            PollingWaitTime = TimeSpan.FromMilliseconds(25)
+        };
+        var perPollerToken = new PollingControlToken
+        {
+            PollingWaitTime = TimeSpan.FromMilliseconds(25)
+        };
+        perPollerToken.StopPolling();
+
+        await RunSQSMessagePollerTest(client, options => options.PollingControlToken = perPollerToken, pollingControlToken: busScopedToken);
+
+        client.Verify(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Tests that two pollers on the same message bus, each with its own <see cref="SQSMessagePollerOptions.PollingControlToken"/>,
+    /// are paused and resumed independently. Stopping one poller's token leaves the other draining its queue.
+    /// </summary>
+    [Fact]
+    public async Task SQSMessagePoller_TwoPollers_IndependentPerPollerTokens()
+    {
+        const string runningQueueUrl = "runningQueueUrl";
+        const string stoppedQueueUrl = "stoppedQueueUrl";
+
+        var client = new Mock<IAmazonSQS>();
+        var runningQueuePolled = new TaskCompletionSource<bool>();
+        client.Setup(x => x.ReceiveMessageAsync(It.IsAny<ReceiveMessageRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReceiveMessageResponse(), TimeSpan.FromMilliseconds(50))
+            .Callback<ReceiveMessageRequest, CancellationToken>((request, _) =>
+            {
+                if (request.QueueUrl == runningQueueUrl) runningQueuePolled.TrySetResult(true);
+            });
+
+        var runningToken = new PollingControlToken
+        {
+            PollingWaitTime = TimeSpan.FromMilliseconds(25)
+        };
+        var stoppedToken = new PollingControlToken
+        {
+            PollingWaitTime = TimeSpan.FromMilliseconds(25)
+        };
+        stoppedToken.StopPolling();
+
+        _serviceCollection.AddLogging();
+        _serviceCollection.AddAWSMessageBus(builder =>
+        {
+            builder.AddSQSPoller(runningQueueUrl, options => options.PollingControlToken = runningToken);
+            builder.AddSQSPoller(stoppedQueueUrl, options => options.PollingControlToken = stoppedToken);
+            builder.AddMessageHandler<ChatMessageHandler, ChatMessage>();
+        });
+        _serviceCollection.AddSingleton(client.Object);
+
+        var serviceProvider = _serviceCollection.BuildServiceProvider();
+        var pump = serviceProvider.GetService<IHostedService>() as MessagePumpService;
+        Assert.NotNull(pump);
+
+        var source = new CancellationTokenSource();
+        var task = pump.StartAsync(source.Token);
+
+        // Wait until the running poller has actually polled, rather than relying on a fixed delay.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await runningQueuePolled.Task.WaitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Assert.Fail("Timed out waiting for the running poller to poll SQS");
+        }
+
+        source.Cancel();
+        await task;
+
+        client.Verify(x => x.ReceiveMessageAsync(
+            It.Is<ReceiveMessageRequest>(request => request.QueueUrl == runningQueueUrl), It.IsAny<CancellationToken>()), Times.AtLeastOnce());
+        client.Verify(x => x.ReceiveMessageAsync(
+            It.Is<ReceiveMessageRequest>(request => request.QueueUrl == stoppedQueueUrl), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    /// <summary>
     /// Tests that configuring a poller with <see cref="SQSMessagePollerConfiguration.MaxNumberOfConcurrentMessages"/>
     /// set to a value greater than SQS's current limit of 10 will only receive 10 messages at a time.
     /// </summary>
@@ -435,7 +548,7 @@ public class SQSMessagePollerTests
     /// </summary>
     /// <param name="mockSqsClient">Mocked SQS client</param>
     /// <param name="options">SQS MessagePoller options</param>
-    /// <param name="pollingControlToken">Polling control token to start or stop message receipt</param>
+    /// <param name="pollingControlToken">Bus-scoped polling control token to start or stop message receipt</param>
     private async Task RunSQSMessagePollerTest(Mock<IAmazonSQS> mockSqsClient, Action<SQSMessagePollerOptions>? options = null, PollingControlToken? pollingControlToken = null)
     {
         var pump = BuildMessagePumpService(mockSqsClient, options, pollingControlToken);
@@ -452,7 +565,7 @@ public class SQSMessagePollerTests
     /// </summary>
     /// <param name="mockSqsClient">Mocked SQS client</param>
     /// <param name="options">SQS MessagePoller options</param>
-    /// <param name="pollingControlToken">Polling control token to start or stop message receipt</param>
+    /// <param name="pollingControlToken">Bus-scoped polling control token to start or stop message receipt</param>
     private MessagePumpService BuildMessagePumpService(Mock<IAmazonSQS> mockSqsClient, Action<SQSMessagePollerOptions>? options = null, PollingControlToken? pollingControlToken = null)
     {
         _serviceCollection.AddLogging();

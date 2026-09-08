@@ -28,6 +28,9 @@ public class SQSMessagePollerOptions
     /// <inheritdoc cref="SQSMessagePollerConfiguration.IsExceptionFatal" />
     public Func<Exception, bool> IsExceptionFatal { get; set; } = SQSMessagePollerConfiguration.DefaultIsExceptionFatal;
 
+    /// <inheritdoc cref="SQSMessagePollerConfiguration.PollingControlToken" />
+    public PollingControlToken? PollingControlToken { get; set; }
+
     /// <summary>
     /// Validates that the options are valid against the message framework's and/or SQS limits
     /// </summary>

@@ -95,6 +95,15 @@ public class SQSMessagePollerConfiguration : IMessagePollerConfiguration
     public Func<Exception, bool> IsExceptionFatal { get; set; } = DefaultIsExceptionFatal;
 
     /// <summary>
+    /// An optional <see cref="Configuration.PollingControlToken"/> scoped to this poller, used to start and stop it independently of other pollers on the same message bus.
+    /// </summary>
+    /// <remarks>
+    /// When <c>null</c> (the default), the poller uses the bus-scoped token configured via <see cref="IMessageBusBuilder.ConfigurePollingControlToken"/>.
+    /// When set, the poller is controlled exclusively by this token and is unaffected by the bus-scoped token.
+    /// </remarks>
+    public PollingControlToken? PollingControlToken { get; init; }
+
+    /// <summary>
     /// Construct an instance of <see cref="SQSMessagePollerConfiguration" />
     /// </summary>
     /// <param name="queueUrl">The SQS QueueUrl to poll messages from.</param>

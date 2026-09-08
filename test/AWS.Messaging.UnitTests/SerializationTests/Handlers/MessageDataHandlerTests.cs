@@ -143,6 +143,66 @@ public class MessageMetadataHandlerTests
     }
 
     [Fact]
+    public void CreateSQSMetadata_WithValidApproximateReceiveCount_ReturnsCorrectMetadata()
+    {
+        // Arrange
+        var message = new Message
+        {
+            MessageId = "test-message-id",
+            Attributes = new Dictionary<string, string>
+            {
+                { "ApproximateReceiveCount", "3" }
+            }
+        };
+
+        // Act
+        var metadata = MessageMetadataHandler.CreateSQSMetadata(message);
+
+        // Assert
+        Assert.Equal(3, metadata.ApproximateReceiveCount);
+    }
+
+    [Fact]
+    public void CreateSQSMetadata_WithMissingApproximateReceiveCount_ReturnsNullApproximateReceiveCount()
+    {
+        // Arrange
+        var message = new Message
+        {
+            MessageId = "test-message-id",
+            Attributes = new Dictionary<string, string>
+            {
+                { "MessageGroupId", "group-1" }
+            }
+        };
+
+        // Act
+        var metadata = MessageMetadataHandler.CreateSQSMetadata(message);
+
+        // Assert
+        Assert.Null(metadata.ApproximateReceiveCount);
+    }
+
+    [Fact]
+    public void CreateSQSMetadata_WithInvalidApproximateReceiveCount_ReturnsNullApproximateReceiveCount()
+    {
+        // Arrange
+        var message = new Message
+        {
+            MessageId = "test-message-id",
+            Attributes = new Dictionary<string, string>
+            {
+                { "ApproximateReceiveCount", "not-a-number" }
+            }
+        };
+
+        // Act
+        var metadata = MessageMetadataHandler.CreateSQSMetadata(message);
+
+        // Assert
+        Assert.Null(metadata.ApproximateReceiveCount);
+    }
+
+    [Fact]
     public void CreateSQSMetadata_WithNullAttributes_ReturnsNullSentTimestamp()
     {
         // Arrange

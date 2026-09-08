@@ -36,6 +36,11 @@ namespace AWS.Messaging
         public DateTimeOffset? SentTimestamp { get; set; }
 
         /// <summary>
+        /// The approximate number of times a message has been received across all delivery attempts but not deleted.
+        /// </summary>
+        public int? ApproximateReceiveCount { get; set; }
+
+        /// <summary>
         /// Each message attribute consists of a Name, Type, and Value.For more information, see Amazon SQS message attributes (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-message-metadata.html#sqs-message-attributes)
         /// </summary>
         public Dictionary<string, MessageAttributeValue>? MessageAttributes { get; set; }

@@ -1,3 +1,13 @@
+## Release 2026-08-07
+
+### AWS.Messaging (1.6.0)
+* Added an optional per-poller PollingControlToken on SQSMessagePollerOptions, allowing SQS pollers on the same message bus to be paused and resumed independently. When not set, the poller continues to use the bus-scoped token configured via ConfigurePollingControlToken.
+
+## Release 2026-07-31
+
+### AWS.Messaging (1.5.0)
+* Expose ApproximateReceiveCount on SQSMetadata so handlers can distinguish first deliveries from redeliveries.
+
 ## Release 2026-07-30
 
 ### AWS.Messaging (1.4.0)

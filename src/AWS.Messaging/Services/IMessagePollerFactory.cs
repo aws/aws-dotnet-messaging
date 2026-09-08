@@ -41,6 +41,11 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
     public IMessagePoller CreateMessagePoller(IMessagePollerConfiguration pollerConfiguration)
     {
         IMessagePoller poller;
+
+        // A poller-scoped token takes precedence over the bus-scoped one registered in the container.
+        var pollingControlToken = (pollerConfiguration as SQSMessagePollerConfiguration)?.PollingControlToken
+            ?? _serviceProvider.GetRequiredService<PollingControlToken>();
+
         if (pollerConfiguration is SingleTypeSQSMessagePollerConfiguration singleTypeSQSPollerConfiguration)
         {
             // If the poller is tied to a single message type, create a poller-scoped
@@ -81,11 +86,11 @@ internal class DefaultMessagePollerFactory : IMessagePollerFactory
                     singleTypeSQSPollerConfiguration.MessageEnvelopeMode);
             }
 
-            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, serializerToUse);
+            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, singleTypeSQSPollerConfiguration, serializerToUse, pollingControlToken);
         }
         else if(pollerConfiguration is SQSMessagePollerConfiguration sqsPollerConfiguration)
         {
-            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, sqsPollerConfiguration);
+            poller = ActivatorUtilities.CreateInstance<SQSMessagePoller>(_serviceProvider, sqsPollerConfiguration, pollingControlToken);
         }
         else
         {
