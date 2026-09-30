@@ -14,6 +14,7 @@ using AWS.Messaging.UnitTests.Models;
 using Amazon.SQS;
 using AWS.Messaging.Serialization;
 using System.Threading;
+using System.Net.Http;
 using Amazon.SQS.Model;
 using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
@@ -411,6 +412,24 @@ public class MessagePublisherTests
                 {
                     throw exception;
                 }
+                return SucceedAllEntries(req);
+            });
+    }
+
+    /// <summary>
+    /// Makes the mocked SQS client cancel <paramref name="cancellationTokenSource"/> while the first SendMessageBatch
+    /// request is in flight, so the first request succeeds and every later request throws <see cref="OperationCanceledException"/>.
+    /// </summary>
+    private void SetupSendMessageBatchCancelledDuringFirstRequest(CancellationTokenSource cancellationTokenSource)
+    {
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SendMessageBatchRequest req, CancellationToken token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                cancellationTokenSource.Cancel();
                 return SucceedAllEntries(req);
             });
     }
@@ -2096,6 +2115,72 @@ public class MessagePublisherTests
     }
 
     [Fact]
+    public async Task SQSPublisher_SendBatch_HttpRequestExceptionIsWrappedWithPartialResults()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+        SetupSendMessageBatchThrowsAfterFirstRequest(new HttpRequestException("Connection reset"));
+
+        var entries = CreateEntriesWithIds(25);
+        var ex = await Assert.ThrowsAsync<FailedToPublishBatchException>(
+            () => messagePublisher.SendBatchAsync<ChatMessage>(entries));
+
+        Assert.IsType<HttpRequestException>(ex.InnerException);
+        Assert.NotNull(ex.PartialResponse);
+        Assert.Equal(Enumerable.Range(0, 10).Select(i => $"order-{i}"), ex.PartialResponse.Successful.Select(s => s.Id!));
+        Assert.Equal(
+            OrderIdsWithReason(10, 10, SQSSendBatchUnprocessedReason.OutcomeUnknown)
+                .Concat(OrderIdsWithReason(20, 5, SQSSendBatchUnprocessedReason.NotSent)),
+            GetUnprocessedIdsAndReasons(ex.PartialResponse));
+        AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), ex.PartialResponse);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_TimeoutIsWrappedWithPartialResults()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        // An HTTP timeout surfaces as TaskCanceledException even though the caller did not cancel
+        SetupSendMessageBatchThrowsAfterFirstRequest(new TaskCanceledException("The request timed out."));
+
+        var entries = CreateEntriesWithIds(25);
+        var ex = await Assert.ThrowsAsync<FailedToPublishBatchException>(
+            () => messagePublisher.SendBatchAsync<ChatMessage>(entries));
+
+        Assert.IsType<TaskCanceledException>(ex.InnerException);
+        Assert.NotNull(ex.PartialResponse);
+        Assert.Equal(10, ex.PartialResponse.Successful.Count);
+        Assert.Equal(
+            OrderIdsWithReason(10, 10, SQSSendBatchUnprocessedReason.OutcomeUnknown)
+                .Concat(OrderIdsWithReason(20, 5, SQSSendBatchUnprocessedReason.NotSent)),
+            GetUnprocessedIdsAndReasons(ex.PartialResponse));
+        AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), ex.PartialResponse);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_CallerCancellationIsNotWrapped()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        using var cancellationTokenSource = new CancellationTokenSource();
+        SetupSendMessageBatchCancelledDuringFirstRequest(cancellationTokenSource);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => messagePublisher.SendBatchAsync<ChatMessage>(CreateEntriesWithIds(25), token: cancellationTokenSource.Token));
+
+        _sqsClient.Verify(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task SQSPublisher_SendBatch_TelemetryRecordsOriginalExceptionOnce()
     {
         var serviceProvider = SetupSQSPublisherDIServices();
@@ -2122,6 +2207,32 @@ public class MessagePublisherTests
         telemetryTrace.Verify(x =>
                 x.AddException(It.Is<Exception>(e => e is FailedToPublishBatchException), It.IsAny<bool>()),
             Times.Never());
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_TelemetryRecordsCallerCancellationOnce()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var telemetryFactory = new Mock<ITelemetryFactory>();
+        var telemetryTrace = new Mock<ITelemetryTrace>();
+        telemetryFactory.Setup(x => x.Trace(It.IsAny<string>())).Returns(telemetryTrace.Object);
+
+        var messagePublisher = new SQSPublisher(
+            (IAWSClientProvider)serviceProvider.GetService(typeof(IAWSClientProvider))!,
+            _sqsPublisherLogger.Object,
+            _messageConfiguration.Object,
+            _envelopeSerializer.Object,
+            telemetryFactory.Object
+        );
+        SetupUniqueEnvelopeIds();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        SetupSendMessageBatchCancelledDuringFirstRequest(cancellationTokenSource);
+
+        var ex = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => messagePublisher.SendBatchAsync<ChatMessage>(CreateEntriesWithIds(25), token: cancellationTokenSource.Token));
+
+        telemetryTrace.Verify(x => x.AddException(It.IsAny<Exception>(), It.IsAny<bool>()), Times.Once());
+        telemetryTrace.Verify(x => x.AddException(ex, It.IsAny<bool>()), Times.Once());
     }
 
     [Fact]

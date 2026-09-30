@@ -115,9 +115,27 @@ internal class SQSPublisher : ISQSPublisher
     /// <summary>
     /// <inheritdoc/>
     /// </summary>
-    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
-    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
-    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    /// <exception cref="FailedToPublishBatchException">If a SendMessageBatch request threw, for example because of an SQS error,
+    /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
+    /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every message: those of the
+    /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
+    /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/> if SQS left
+    /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
+    /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
+    /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>
+    /// <exception cref="OperationCanceledException">If <paramref name="token"/> was cancelled. No partial results are available.
+    /// Messages in earlier requests, and possibly those in the request that was in flight when <paramref name="token"/> was
+    /// cancelled, may already have been delivered.</exception>
+    /// <exception cref="ArgumentNullException">If <paramref name="messages"/> is null.</exception>
+    /// <exception cref="InvalidMessageException">If any message is null. Nothing is sent in this case.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If <typeparamref name="T"/> is not configured to be published to SQS.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidPublisherEndpointException">If no queue URL is configured for <typeparamref name="T"/>.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidFifoPublishingRequestException">If the queue is a FIFO queue. Use the other overload to set a
+    /// <see cref="SQSMessageOptions.MessageGroupId"/> on every entry. Nothing is sent in this case.</exception>
+    /// <exception cref="FailedToSerializeMessageEnvelopeException">If a message cannot be serialized.
+    /// Nothing is sent in this case.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, CancellationToken token = default)
     {
         if (messages == null)
@@ -132,9 +150,27 @@ internal class SQSPublisher : ISQSPublisher
     /// <summary>
     /// <inheritdoc/>
     /// </summary>
-    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
-    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
-    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    /// <exception cref="FailedToPublishBatchException">If a SendMessageBatch request threw, for example because of an SQS error,
+    /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
+    /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every entry: those of the
+    /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
+    /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/> if SQS left
+    /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
+    /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
+    /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>
+    /// <exception cref="OperationCanceledException">If <paramref name="token"/> was cancelled. No partial results are available.
+    /// Messages in earlier requests, and possibly those in the request that was in flight when <paramref name="token"/> was
+    /// cancelled, may already have been delivered.</exception>
+    /// <exception cref="ArgumentNullException">If <paramref name="entries"/> is null.</exception>
+    /// <exception cref="InvalidMessageException">If the message of any entry is null. Nothing is sent in this case.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If <typeparamref name="T"/> is not configured to be published to SQS.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidPublisherEndpointException">If <paramref name="batchOptions"/> sets no queue URL and none is configured
+    /// for <typeparamref name="T"/>. Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidFifoPublishingRequestException">If the queue is a FIFO queue and an entry has no
+    /// <see cref="SQSMessageOptions.MessageGroupId"/>. Nothing is sent in this case.</exception>
+    /// <exception cref="FailedToSerializeMessageEnvelopeException">If a message cannot be serialized.
+    /// Nothing is sent in this case.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSBatchOptions? batchOptions = null, CancellationToken token = default)
     {
         if (entries == null)
@@ -208,8 +244,10 @@ internal class SQSPublisher : ISQSPublisher
                     {
                         response = await client.SendMessageBatchAsync(request, token);
                     }
-                    catch (AmazonSQSException ex)
+                    catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
                     {
+                        // Any failure (SQS error, network error, timeout) is wrapped so the partial results are not lost.
+                        // Cancellation requested by the caller propagates unchanged, following .NET convention.
                         trace.AddException(ex);
 
                         // The entries of this chunk may or may not have reached SQS, and later chunks were never sent
