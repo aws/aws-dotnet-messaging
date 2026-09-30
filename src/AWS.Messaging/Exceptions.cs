@@ -274,14 +274,21 @@ public class InvalidFifoPublishingRequestException : AWSMessagingException
 }
 
 /// <summary>
-/// Thrown if an exception occurs while publishing a batch of messages.
-/// Contains partial results from chunks that may have already succeeded before the failure.
+/// Thrown if a SendMessageBatch request fails while publishing a batch of messages, for example because of an SQS error,
+/// a network error or a timeout. The original exception is available as <see cref="Exception.InnerException"/>.
+/// No later request is sent. <see cref="PartialResponse"/> holds the results of the requests sent before the failure,
+/// the messages of the failing request, whose outcome is unknown, and the messages of the later requests, which were not sent.
 /// </summary>
 public class FailedToPublishBatchException : FailedToPublishException
 {
     /// <summary>
-    /// The partial response containing results from batch chunks that were sent before the failure occurred.
-    /// Earlier chunks may have succeeded even though a later chunk failed.
+    /// The partial response for the batch, which accounts for every entry. SendBatchAsync always sets it.
+    /// Entries from requests sent before the failure are in <see cref="Publishers.SQS.SQSSendBatchResponse.Successful"/>
+    /// or <see cref="Publishers.SQS.SQSSendBatchResponse.Failed"/>, or in <see cref="Publishers.SQS.SQSSendBatchResponse.Unprocessed"/>
+    /// as <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.NotReported"/> if SQS left them out of its response.
+    /// Entries from the request that failed are in <see cref="Publishers.SQS.SQSSendBatchResponse.Unprocessed"/> as
+    /// <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and entries from the later requests,
+    /// which were not sent, as <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.NotSent"/>.
     /// </summary>
     public Publishers.SQS.SQSSendBatchResponse? PartialResponse { get; }
 
