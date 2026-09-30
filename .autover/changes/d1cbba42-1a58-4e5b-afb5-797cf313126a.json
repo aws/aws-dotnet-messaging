@@ -1,0 +1,12 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Minor",
+      "ChangelogMessages": [
+        "Added an optional Id to SQSBatchEntry<T>, sent to SQS as the batch entry Id, so SendBatchAsync results can be matched to the messages that were sent. Added an Unprocessed list to SQSSendBatchResponse for messages that have no result from SQS, each with a Reason: OutcomeUnknown (the message may or may not have reached SQS) or NotSent (the message was never sent because an earlier SendMessageBatch request threw an exception).",
+        "Behavior change: SendBatchAsync now throws FailedToPublishBatchException, with the original exception as its InnerException and the partial results in PartialResponse, for any exception thrown by a SendMessageBatch request, including network errors, HTTP timeouts and credential errors that previously propagated unwrapped. Previously only AmazonSQSException was wrapped. Cancellation through the caller's CancellationToken still throws OperationCanceledException. SendAsync is unchanged and still wraps only AmazonSQSException."
+      ]
+    }
+  ]
+}

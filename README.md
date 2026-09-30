@@ -187,7 +187,10 @@ var response = await sqsPublisher.SendBatchAsync(messages);
 // Check the results
 Console.WriteLine($"Successful: {response.Successful.Count}");
 Console.WriteLine($"Failed: {response.Failed.Count}");
+Console.WriteLine($"Unprocessed: {response.Unprocessed.Count}");
 ```
+
+You can't match the results of this overload back to your messages, because the `Id` of each result is the `MessageEnvelope.Id` that the framework generated. To find out which messages failed and retry exactly those, use `SQSBatchEntry<T>` and set its `Id`, as shown in [Handling the batch response](#handling-the-batch-response).
 
 ### Per-message options using `SQSBatchEntry`
 When each message in the batch needs its own options (e.g., different `MessageGroupId` values for FIFO queues), use `SQSBatchEntry<T>` to pair each message with its own `SQSMessageOptions`:
@@ -203,8 +206,8 @@ var entries = new List<SQSBatchEntry<ChatMessage>>
         new SQSMessageOptions { MessageGroupId = "userB" }),
 };
 
-// Send with per-message options
-var response = await sqsPublisher.SendBatchAsync(entries);
+// Send with per-message options. The type argument selects the SQSBatchEntry<T> overload.
+var response = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
 ```
 
 You can also override the queue URL or SQS client for the entire batch using `SQSBatchOptions`:
@@ -220,41 +223,122 @@ var response = await sqsPublisher.SendBatchAsync(entries, new SQSBatchOptions
 `SendBatchAsync` returns a `SQSSendBatchResponse` that contains:
 * `Successful` — a list of `SQSSendBatchResponseEntry` with the `Id` and `MessageId` (SQS-assigned ID) for each successfully sent message.
 * `Failed` — a list of `SQSSendBatchResponseFailedEntry` with `Id`, `Code`, `Message`, and `SenderFault` for each message that failed.
+* `Unprocessed` — a list of `SQSSendBatchResponseUnprocessedEntry` with the `Id` and `Reason` of each message that has no result from SQS. The `Reason` is one of the `SQSSendBatchUnprocessedReason` values:
+    * `OutcomeUnknown` — the message may or may not have reached SQS. It was in a request that threw, or SQS left it out of its response.
+    * `NotSent` — the message was never sent, because an earlier request threw. Sending it again can't create a duplicate.
 
-The `Id` on each response entry corresponds to the `MessageEnvelope.Id` that the framework generated for that message, so you can correlate successes and failures back to your original inputs.
+Every message you pass in appears in exactly one of these lists. `Unprocessed` is mostly filled in when a request fails partway through a batch (see [Error handling and partial results](#error-handling-and-partial-results)), but it can also be filled in when `SendBatchAsync` returns normally: a message that SQS left out of its response is reported as `OutcomeUnknown`. The framework ignores a result whose `Id` wasn't in the request and logs a warning, so the message that result should have matched is also reported in `Unprocessed` as `OutcomeUnknown`.
+
+The `Id` on each response entry is the `Id` you set on the `SQSBatchEntry<T>`. If you leave it `null`, the framework uses the `MessageEnvelope.Id` it generated for that message, which you can't match back to your input, so set your own `Id` whenever you need to know which messages failed. The framework passes your `Id` to SQS unchanged: only `null` is replaced, so an empty string is sent as is. SQS requires it to be 1–80 characters long and contain only ASCII letters, digits, hyphens (`-`) and underscores (`_`), and it rejects a request in which two messages share an `Id`, so the request fails as described in [Error handling and partial results](#error-handling-and-partial-results). SQS doesn't detect a duplicate `Id` when the two messages land in different requests of 10: the `Id` then appears twice in the results, and you can't tell which result belongs to which message. Keep your `Id`s unique within one `SendBatchAsync` call.
 
 ```csharp
-var response = await sqsPublisher.SendBatchAsync(messages);
+var entries = new List<SQSBatchEntry<ChatMessage>>
+{
+    new(new ChatMessage { MessageDescription = "Hello" }) { Id = "chat-1" },
+    new(new ChatMessage { MessageDescription = "World" }) { Id = "chat-2" }
+};
+
+var response = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
 
 foreach (var success in response.Successful)
 {
-    Console.WriteLine($"Sent message {success.Id} with SQS MessageId: {success.MessageId}");
+    Console.WriteLine($"Sent {success.Id} with SQS MessageId: {success.MessageId}");
 }
 
 foreach (var failure in response.Failed)
 {
     Console.WriteLine($"Failed to send {failure.Id}: [{failure.Code}] {failure.Message}");
 }
+
+foreach (var unprocessed in response.Unprocessed)
+{
+    Console.WriteLine($"No result for {unprocessed.Id}: {unprocessed.Reason}");
+}
 ```
 
 > **Note:** Messages are automatically chunked into groups of 10. If you send 25 messages, the framework will make 3 SQS `SendMessageBatch` API calls (10 + 10 + 5) and aggregate the results into a single `SQSSendBatchResponse`.
 
-### Error handling and partial results
-If an `AmazonSQSException` is thrown during a batch send (e.g., on the second chunk after the first chunk already succeeded), the framework throws a `FailedToPublishBatchException`. This exception includes a `PartialResponse` property containing any results from chunks that were sent before the failure occurred, so you can determine what was already published and avoid duplicate retries.
+### Retrying failed messages
+Use the `Id`s in the response to find the entries to send again:
+* `Failed` entries where `SenderFault` is `false` (for example, an internal SQS error). When `SenderFault` is `true`, the entry itself is invalid (for example, it contains characters that SQS doesn't allow), so sending it again unchanged fails the same way.
+* `Unprocessed` entries. After a normal return they are all `OutcomeUnknown`: SQS may have accepted them, so sending them again can deliver them twice (see [Error handling and partial results](#error-handling-and-partial-results)).
+
+Errors that affect a whole request, such as a batch over the SQS size limit, don't show up in `Failed`. They are thrown as a `FailedToPublishBatchException`.
+
+The lookup in the following example needs a unique, non-null `Id` on every entry, and `entries` must be a materialized collection, such as a `List<T>`, so that the lookup and the send see the same entries. Build the lookup before you send: `ToDictionary` throws on a `null` or duplicate `Id` before anything is sent, rather than while you handle the results.
 
 ```csharp
+var entriesById = entries.ToDictionary(e => e.Id!);
+
+var response = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
+
+var toRetry = response.Failed
+    .Where(failure => !failure.SenderFault)
+    .Select(failure => entriesById[failure.Id!])
+    .Concat(response.Unprocessed.Select(unprocessed => entriesById[unprocessed.Id!]))
+    .ToList();
+
+if (toRetry.Count > 0)
+{
+    response = await sqsPublisher.SendBatchAsync<ChatMessage>(toRetry);
+}
+```
+
+> **Note:** On a FIFO queue, a failed entry doesn't stop the entries after it, so later messages with the same `MessageGroupId` may already be in the queue when you retry the failed one, and the retry then lands after them. If a group's order must be strict, put at most one message of each group in a `SendBatchAsync` call, and send the group's next message only after the previous one succeeded.
+
+### Error handling and partial results
+If a `SendMessageBatch` request throws (for example an `AmazonSQSException`, a network error or a timeout), the framework sends no further requests and throws a `FailedToPublishBatchException`. The original exception is its `InnerException`, and its `PartialResponse` property accounts for every message:
+* Messages from requests sent before the failure are in `Successful` or `Failed`, or in `Unprocessed` as `OutcomeUnknown` if SQS left them out of its response.
+* Messages from the request that failed are in `Unprocessed` as `OutcomeUnknown`. That request may still have reached SQS, for example when it timed out after SQS accepted it.
+* Messages from later requests are in `Unprocessed` as `NotSent`. This means a single rejected request, for example because of one invalid `Id` early in a large batch, stops every later request from being sent.
+
+Sending a `NotSent` message again can't deliver it twice, but it succeeds only once the cause of the failure is gone. Before you resend `OutcomeUnknown` messages, check the `InnerException` (the exception types below are in the `Amazon.SQS.Model` namespace):
+* `InvalidBatchEntryIdException`, `BatchEntryIdsNotDistinctException` or `BatchRequestTooLongException`: SQS rejected only that request. Nothing in it was delivered, and sending its entries again unchanged fails the same way, so fix them first. For `BatchRequestTooLongException`, send those messages in smaller `SendBatchAsync` calls: the framework puts up to 10 messages in a request regardless of their size, and SQS limits a whole request to 1 MiB, the same as a single message, so a batch of large messages (around 100 KB or more each) can exceed it.
+* `QueueDoesNotExistException`, or a KMS or permission error (for example `KmsAccessDeniedException`): nothing can be sent to that queue until you fix its configuration, and that includes the `NotSent` messages.
+
+```csharp
+// Build the lookup before sending and outside the catch block, as in "Retrying failed messages"
+var entriesById = entries.ToDictionary(e => e.Id!);
+
 try
 {
-    var response = await sqsPublisher.SendBatchAsync(messages);
+    var response = await sqsPublisher.SendBatchAsync<ChatMessage>(entries, token: ct);
+    // Handle response.Failed and response.Unprocessed as in "Retrying failed messages"
 }
 catch (FailedToPublishBatchException ex)
 {
-    // Some messages from earlier chunks may have been sent successfully
-    var alreadySent = ex.PartialResponse?.Successful ?? new List<SQSSendBatchResponseEntry>();
-    Console.WriteLine($"{alreadySent.Count} message(s) were sent before the failure.");
-    Console.WriteLine($"Error: {ex.InnerException?.Message}");
+    // Nothing can be sent to a queue that doesn't exist, not even the NotSent messages, until you fix the configuration
+    if (ex.InnerException is QueueDoesNotExistException)
+    {
+        throw;
+    }
+
+    var partial = ex.PartialResponse!;
+
+    // SQS rejected only this request, so resending its entries unchanged would fail again
+    var requestRejected = ex.InnerException is InvalidBatchEntryIdException
+        or BatchEntryIdsNotDistinctException
+        or BatchRequestTooLongException;
+
+    // The entries this leaves out (Failed entries whose SenderFault is true, and the OutcomeUnknown entries when
+    // requestRejected is true) won't succeed if sent again unchanged. Log or store them; don't drop them silently.
+    var toRetry = partial.Failed
+        .Where(failure => !failure.SenderFault)
+        .Select(failure => entriesById[failure.Id!])
+        .Concat(partial.Unprocessed
+            .Where(unprocessed => unprocessed.Reason == SQSSendBatchUnprocessedReason.NotSent || !requestRejected)
+            .Select(unprocessed => entriesById[unprocessed.Id!]))
+        .ToList();
+
+    // Send toRetry again after a delay, up to a fixed number of attempts
 }
 ```
+
+Resending an `OutcomeUnknown` message can deliver it twice. Every send creates a new message envelope, with a new `MessageEnvelope.Id` and timestamp and therefore a different message body, so deduplicating on the envelope `Id`, or with FIFO content-based deduplication, doesn't catch a retried message. Deduplicate in your handlers on a business key carried in the message instead. The `SQSBatchEntry<T>.Id` isn't delivered to consumers; put it in the message or in a message attribute if they need it. On a FIFO queue, set an explicit `MessageDeduplicationId` in the entry's `SQSMessageOptions` and retry within the SQS 5-minute deduplication interval, so that SQS drops a copy it already accepted.
+
+If the `CancellationToken` you pass to `SendBatchAsync` is cancelled, an `OperationCanceledException` is thrown instead, and no partial results are available. Messages in earlier requests, and possibly in the request that was in flight when the token was cancelled, may already have been delivered, and you can't tell which. A timeout that you implement with your own token, such as `new CancellationTokenSource(TimeSpan.FromSeconds(30))`, counts as cancellation, so it isn't wrapped in a `FailedToPublishBatchException`.
+
+> **Note:** This applies to `SendBatchAsync` only. The single-message `SendAsync` still wraps only an `AmazonSQSException` (in a `FailedToPublishException`), so network errors and timeouts propagate from it unwrapped.
 
 # Consuming Messages
 
