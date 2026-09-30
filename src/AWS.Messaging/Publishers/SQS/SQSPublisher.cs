@@ -173,9 +173,10 @@ internal class SQSPublisher : ISQSPublisher
 
                     var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                    // Use the MessageEnvelope.Id as the batch entry Id so callers can correlate
-                    // successes/failures in the response back to their original input messages
-                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, entry.Options);
+                    // Use the caller-supplied Id, or the MessageEnvelope.Id when none was given, as the batch entry Id
+                    // so callers can correlate successes/failures in the response back to their original input messages
+                    var batchEntryId = entry.Id ?? messageEnvelope.Id;
+                    var batchEntry = CreateSendMessageBatchRequestEntry(batchEntryId, queueUrl, messageBody, entry.Options);
                     batchRequestEntries.Add(batchEntry);
                 }
 

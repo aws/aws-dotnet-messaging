@@ -29,6 +29,21 @@ public class SQSBatchEntry<T>
     }
 
     /// <summary>
+    /// An optional identifier, chosen by the caller, used to correlate this entry with its result in
+    /// <see cref="SQSSendBatchResponse"/>. When null, the framework uses the generated <see cref="MessageEnvelope.Id"/>,
+    /// which callers cannot match back to their input.
+    /// <para>
+    /// The Id is sent to SQS unchanged; only null is replaced, so an empty string is sent as an empty Id.
+    /// SQS requires it to be 1-80 characters long and to contain only ASCII letters, digits, hyphens and underscores,
+    /// and rejects a request in which two entries share an Id.
+    /// SQS does not detect a duplicate Id when the two entries land in different requests of 10: the Id then
+    /// appears twice in the results, and the results cannot be told apart.
+    /// Keep Ids unique within a single SendBatchAsync call so that every result matches exactly one entry.
+    /// </para>
+    /// </summary>
+    public string? Id { get; set; }
+
+    /// <summary>
     /// The application message that will be serialized and sent to an SQS queue.
     /// </summary>
     public T Message { get; set; } = default!;

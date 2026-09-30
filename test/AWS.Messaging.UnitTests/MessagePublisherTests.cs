@@ -323,6 +323,58 @@ public class MessagePublisherTests
         );
     }
 
+    /// <summary>
+    /// Makes the mocked envelope serializer create a new envelope with a unique Id ("envelope-1", "envelope-2", ...)
+    /// for every <see cref="ChatMessage"/>, like the default message Id generator, instead of sharing the "1234" envelope.
+    /// </summary>
+    private void SetupUniqueEnvelopeIds()
+    {
+        var envelopeCount = 0;
+        _envelopeSerializer
+            .Setup(x => x.CreateEnvelopeAsync(It.IsAny<ChatMessage>()))
+            .Returns(() => ValueTask.FromResult(new MessageEnvelope<ChatMessage>
+            {
+                Id = $"envelope-{++envelopeCount}",
+                Source = new Uri("/aws/messaging/unittest", UriKind.Relative)
+            }));
+    }
+
+    /// <summary>
+    /// Builds an SQS response that reports every entry of <paramref name="request"/> as successful,
+    /// with the SQS MessageId "msg-{entry Id}".
+    /// </summary>
+    private static SendMessageBatchResponse SucceedAllEntries(SendMessageBatchRequest request)
+    {
+        return new SendMessageBatchResponse
+        {
+            Successful = request.Entries.Select(e => new SendMessageBatchResultEntry
+            {
+                Id = e.Id,
+                MessageId = $"msg-{e.Id}"
+            }).ToList(),
+            Failed = new List<SQSBatchResultErrorEntry>()
+        };
+    }
+
+    /// <summary>
+    /// Makes the mocked SQS client report every entry of every SendMessageBatch request as successful.
+    /// </summary>
+    /// <returns>The requests sent to SQS, in order.</returns>
+    private List<SendMessageBatchRequest> SetupSendMessageBatchSucceedsForAllEntries()
+    {
+        var sentRequests = new List<SendMessageBatchRequest>();
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SendMessageBatchRequest req, CancellationToken _) =>
+            {
+                sentRequests.Add(req);
+                return SucceedAllEntries(req);
+            });
+        return sentRequests;
+    }
+
     [Fact]
     public async Task SQSPublisher_UnsupportedPublisher()
     {
@@ -1520,6 +1572,88 @@ public class MessagePublisherTests
 
         await Assert.ThrowsAsync<ArgumentNullException>(
             () => messagePublisher.SendBatchAsync<ChatMessage>((IEnumerable<SQSBatchEntry<ChatMessage>>)null!));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_CallerIdIsSentAndReturnedInSuccessful()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+        var sentRequests = SetupSendMessageBatchSucceedsForAllEntries();
+
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Order 1" }) { Id = "order-1" },
+            new(new ChatMessage { MessageDescription = "Order 2" }) { Id = "order-2" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal(new[] { "order-1", "order-2" }, Assert.Single(sentRequests).Entries.Select(e => e.Id));
+        Assert.Equal(new[] { "order-1", "order-2" }, result.Successful.Select(s => s.Id!));
+        Assert.Equal(new[] { "msg-order-1", "msg-order-2" }, result.Successful.Select(s => s.MessageId!));
+        Assert.Empty(result.Failed);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_CallerIdIsReturnedInFailed()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = "order-1", MessageId = "msg-order-1" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>
+            {
+                new() { Id = "order-2", Code = "InternalError", Message = "Something went wrong", SenderFault = false }
+            }
+        });
+
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Order 1" }) { Id = "order-1" },
+            new(new ChatMessage { MessageDescription = "Order 2" }) { Id = "order-2" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal("order-1", Assert.Single(result.Successful).Id);
+        var failure = Assert.Single(result.Failed);
+        Assert.Equal("order-2", failure.Id);
+        Assert.Equal("InternalError", failure.Code);
+        Assert.Equal("Something went wrong", failure.Message);
+        Assert.False(failure.SenderFault);
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_EntriesWithoutIdUseEnvelopeId()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+        var sentRequests = SetupSendMessageBatchSucceedsForAllEntries();
+
+        // The second entry has no Id, so it uses the envelope Id created for it ("envelope-2")
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Order 1" }) { Id = "order-1" },
+            new(new ChatMessage { MessageDescription = "No Id" }),
+            new(new ChatMessage { MessageDescription = "Order 3" }) { Id = "order-3" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal(new[] { "order-1", "envelope-2", "order-3" }, Assert.Single(sentRequests).Entries.Select(e => e.Id));
+        Assert.Equal(new[] { "order-1", "envelope-2", "order-3" }, result.Successful.Select(s => s.Id!));
     }
 
     [Fact]
