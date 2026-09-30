@@ -25,12 +25,13 @@ public class SQSSendBatchResponse
     /// that tells whether it may have reached SQS.
     /// <para>
     /// When a SendMessageBatch request throws, this list on <see cref="FailedToPublishBatchException.PartialResponse"/> holds
-    /// the messages of that request as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, followed by the messages
-    /// of the later requests, which were never sent, as <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.
+    /// the messages of the earlier requests that SQS left out of its responses as <see cref="SQSSendBatchUnprocessedReason.NotReported"/>,
+    /// followed by the messages of the request that threw as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, followed by
+    /// the messages of the later requests, which were never sent, as <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.
     /// </para>
     /// <para>
     /// This list can also be filled when SendBatchAsync returns normally: a message that SQS left out of its response
-    /// is added as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>.
+    /// is added as <see cref="SQSSendBatchUnprocessedReason.NotReported"/>.
     /// </para>
     /// </summary>
     public List<SQSSendBatchResponseUnprocessedEntry> Unprocessed { get; set; } = new();
@@ -104,8 +105,7 @@ public class SQSSendBatchResponseUnprocessedEntry
 public enum SQSSendBatchUnprocessedReason
 {
     /// <summary>
-    /// The message may or may not have reached SQS. It was in a SendMessageBatch request that threw, or SQS left it
-    /// out of its response.
+    /// The message may or may not have reached SQS. It was in a SendMessageBatch request that threw.
     /// <para>
     /// A request that threw may still have been delivered to SQS (for example, when it timed out after SQS accepted it),
     /// or SQS may have rejected the whole request. Sending the message again can deliver it twice. On a FIFO queue, SQS drops
@@ -123,5 +123,15 @@ public enum SQSSendBatchUnprocessedReason
     /// Sending the message again cannot create a duplicate.
     /// </para>
     /// </summary>
-    NotSent
+    NotSent,
+
+    /// <summary>
+    /// The message may or may not have reached SQS. SQS accepted the SendMessageBatch request it was in, but left
+    /// the message out of its response.
+    /// <para>
+    /// SQS reports every message of a request it accepts, so this is rare. Sending the message again can deliver it
+    /// twice, as with <see cref="OutcomeUnknown"/>.
+    /// </para>
+    /// </summary>
+    NotReported
 }

@@ -46,7 +46,7 @@ namespace AWS.Messaging.Publishers.SQS
         /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
         /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every message: those of the
         /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
-        /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/> if SQS left
+        /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.NotReported"/> if SQS left
         /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
         /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
         /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>
@@ -81,7 +81,7 @@ namespace AWS.Messaging.Publishers.SQS
         /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
         /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every entry: those of the
         /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
-        /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/> if SQS left
+        /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.NotReported"/> if SQS left
         /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
         /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
         /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>

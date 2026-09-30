@@ -1773,6 +1773,28 @@ public class MessagePublisherTests
     }
 
     [Fact]
+    public async Task SQSPublisher_SendBatch_EmptyIdIsSentUnchanged()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+        var sentRequests = SetupSendMessageBatchSucceedsForAllEntries();
+
+        // Only a null Id is replaced by the envelope Id, so the empty Id reaches SQS as is
+        var entries = new List<SQSBatchEntry<ChatMessage>>
+        {
+            new(new ChatMessage { MessageDescription = "Empty Id" }) { Id = "" },
+            new(new ChatMessage { MessageDescription = "Order 2" }) { Id = "order-2" }
+        };
+
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal(new[] { "", "order-2" }, Assert.Single(sentRequests).Entries.Select(e => e.Id));
+        Assert.Equal(new[] { "", "order-2" }, result.Successful.Select(s => s.Id!));
+        Assert.Empty(result.Unprocessed);
+    }
+
+    [Fact]
     public async Task SQSPublisher_SendBatch_DuplicateIdsInSameRequestFailThatRequest()
     {
         var serviceProvider = SetupSQSPublisherDIServices();
@@ -1823,6 +1845,45 @@ public class MessagePublisherTests
         Assert.Equal(2, result.Successful.Count(s => s.Id == "dup"));
         Assert.Empty(result.Failed);
         Assert.Empty(result.Unprocessed);
+        AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), result);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task SQSPublisher_SendBatch_DuplicateIdsInSameRequestAreEachMatchedByOneResult(int reportedDuplicateCount)
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        // Unlike SQS, this client (for example an emulator passed as SQSBatchOptions.OverrideClient) accepts a request
+        // in which two entries share the Id "dup". It reports "order-2" and reportedDuplicateCount results for "dup".
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = Enumerable.Range(0, reportedDuplicateCount)
+                .Select(i => new SendMessageBatchResultEntry { Id = "dup", MessageId = $"msg-dup-{i}" })
+                .Append(new SendMessageBatchResultEntry { Id = "order-2", MessageId = "msg-order-2" })
+                .ToList(),
+            Failed = new List<SQSBatchResultErrorEntry>()
+        });
+
+        var entries = CreateEntriesWithIds(3);
+        entries[0].Id = "dup";
+        entries[1].Id = "dup";
+
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal(reportedDuplicateCount, result.Successful.Count(s => s.Id == "dup"));
+        Assert.Contains(result.Successful, s => s.Id == "order-2");
+        Assert.Empty(result.Failed);
+        Assert.Equal(
+            Enumerable.Repeat(("dup", SQSSendBatchUnprocessedReason.NotReported), 2 - reportedDuplicateCount),
+            GetUnprocessedIdsAndReasons(result));
         AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), result);
     }
 
@@ -1914,7 +1975,7 @@ public class MessagePublisherTests
         Assert.Equal("order-0", Assert.Single(result.Successful).Id);
         Assert.Empty(result.Failed);
         Assert.Equal(
-            OrderIdsWithReason(1, 1, SQSSendBatchUnprocessedReason.OutcomeUnknown),
+            OrderIdsWithReason(1, 1, SQSSendBatchUnprocessedReason.NotReported),
             GetUnprocessedIdsAndReasons(result));
         AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), result);
     }
@@ -1951,7 +2012,7 @@ public class MessagePublisherTests
         Assert.Equal("order-0", Assert.Single(result.Successful).Id);
         Assert.Empty(result.Failed);
         Assert.Equal(
-            OrderIdsWithReason(1, 1, SQSSendBatchUnprocessedReason.OutcomeUnknown),
+            OrderIdsWithReason(1, 1, SQSSendBatchUnprocessedReason.NotReported),
             GetUnprocessedIdsAndReasons(result));
         AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), result);
         VerifySingleWarningContaining("'not-in-request-1'");
@@ -2001,6 +2062,42 @@ public class MessagePublisherTests
         VerifySingleWarningContaining("'order-1'");
 
         // The ignored failed result for "order-1" is not logged as an error
+        VerifyNoErrorLogged();
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_ResultWithNullIdIsIgnored()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        // SQS reports "order-0", says nothing about "order-1", and reports a successful and a failed result without an Id
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>())).ReturnsAsync(new SendMessageBatchResponse
+        {
+            Successful = new List<SendMessageBatchResultEntry>
+            {
+                new() { Id = null, MessageId = "msg-no-id" },
+                new() { Id = "order-0", MessageId = "msg-order-0" }
+            },
+            Failed = new List<SQSBatchResultErrorEntry>
+            {
+                new() { Id = null, Code = "InternalError", Message = "Something went wrong", SenderFault = false }
+            }
+        });
+
+        var entries = CreateEntriesWithIds(2);
+        var result = await messagePublisher.SendBatchAsync<ChatMessage>(entries);
+
+        Assert.Equal("order-0", Assert.Single(result.Successful).Id);
+        Assert.Empty(result.Failed);
+        Assert.Equal(
+            OrderIdsWithReason(1, 1, SQSSendBatchUnprocessedReason.NotReported),
+            GetUnprocessedIdsAndReasons(result));
+        AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), result);
         VerifyNoErrorLogged();
     }
 
@@ -2112,6 +2209,48 @@ public class MessagePublisherTests
             OrderIdsWithReason(10, 10, SQSSendBatchUnprocessedReason.OutcomeUnknown)
                 .Concat(OrderIdsWithReason(20, 5, SQSSendBatchUnprocessedReason.NotSent)),
             GetUnprocessedIdsAndReasons(partial));
+    }
+
+    [Fact]
+    public async Task SQSPublisher_SendBatch_ChunkFailureKeepsEntriesLeftOutOfEarlierResponse()
+    {
+        var serviceProvider = SetupSQSPublisherDIServices();
+        var messagePublisher = SetupSQSPublisher(serviceProvider);
+        SetupUniqueEnvelopeIds();
+
+        var requestCount = 0;
+        _sqsClient.Setup(x =>
+            x.SendMessageBatchAsync(
+                It.IsAny<SendMessageBatchRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SendMessageBatchRequest req, CancellationToken _) =>
+            {
+                requestCount++;
+                if (requestCount > 1)
+                {
+                    throw new AmazonSQSException("Service unavailable");
+                }
+
+                // First chunk: SQS reports every entry as successful except "order-3", which it leaves out
+                var response = SucceedAllEntries(req);
+                response.Successful.RemoveAll(s => s.Id == "order-3");
+                return response;
+            });
+
+        // 25 entries = 3 chunks (10 + 10 + 5). The second chunk throws, so the third is never sent.
+        var entries = CreateEntriesWithIds(25);
+        var ex = await Assert.ThrowsAsync<FailedToPublishBatchException>(
+            () => messagePublisher.SendBatchAsync<ChatMessage>(entries));
+
+        var partial = ex.PartialResponse!;
+        Assert.Equal(9, partial.Successful.Count);
+        Assert.Empty(partial.Failed);
+        Assert.Equal(
+            OrderIdsWithReason(3, 1, SQSSendBatchUnprocessedReason.NotReported)
+                .Concat(OrderIdsWithReason(10, 10, SQSSendBatchUnprocessedReason.OutcomeUnknown))
+                .Concat(OrderIdsWithReason(20, 5, SQSSendBatchUnprocessedReason.NotSent)),
+            GetUnprocessedIdsAndReasons(partial));
+        AssertEveryEntryIsReportedOnce(entries.Select(e => e.Id!), partial);
     }
 
     [Fact]

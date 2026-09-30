@@ -285,7 +285,7 @@ public class FailedToPublishBatchException : FailedToPublishException
     /// The partial response for the batch, which accounts for every entry. SendBatchAsync always sets it.
     /// Entries from requests sent before the failure are in <see cref="Publishers.SQS.SQSSendBatchResponse.Successful"/>
     /// or <see cref="Publishers.SQS.SQSSendBatchResponse.Failed"/>, or in <see cref="Publishers.SQS.SQSSendBatchResponse.Unprocessed"/>
-    /// as <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.OutcomeUnknown"/> if SQS left them out of its response.
+    /// as <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.NotReported"/> if SQS left them out of its response.
     /// Entries from the request that failed are in <see cref="Publishers.SQS.SQSSendBatchResponse.Unprocessed"/> as
     /// <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and entries from the later requests,
     /// which were not sent, as <see cref="Publishers.SQS.SQSSendBatchUnprocessedReason.NotSent"/>.

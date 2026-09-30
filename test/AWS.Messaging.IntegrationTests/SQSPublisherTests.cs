@@ -191,7 +191,8 @@ public class SQSPublisherTests : IAsyncLifetime
 
         var batchResponse = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
 
-        Assert.Equal(ids, batchResponse.Successful.Select(s => s.Id!));
+        // SQS does not promise to return results in request order
+        Assert.Equal(ids.OrderBy(id => id), batchResponse.Successful.Select(s => s.Id!).OrderBy(id => id));
         Assert.Empty(batchResponse.Failed);
         Assert.Empty(batchResponse.Unprocessed);
 
@@ -221,7 +222,7 @@ public class SQSPublisherTests : IAsyncLifetime
 
         Assert.IsType<InvalidBatchEntryIdException>(ex.InnerException);
         var partial = ex.PartialResponse!;
-        Assert.Equal(ids.Take(10), partial.Successful.Select(s => s.Id!));
+        Assert.Equal(ids.Take(10).OrderBy(id => id), partial.Successful.Select(s => s.Id!).OrderBy(id => id));
         Assert.Empty(partial.Failed);
         Assert.Equal(
             ids.Skip(10).Take(10).Select(id => (id, SQSSendBatchUnprocessedReason.OutcomeUnknown))
@@ -248,7 +249,7 @@ public class SQSPublisherTests : IAsyncLifetime
 
         var batchResponse = await sqsPublisher.SendBatchAsync<ChatMessage>(entries);
 
-        Assert.Equal(new[] { "order-0", "order-2" }, batchResponse.Successful.Select(s => s.Id));
+        Assert.Equal(new[] { "order-0", "order-2" }, batchResponse.Successful.Select(s => s.Id).OrderBy(id => id));
         var failure = Assert.Single(batchResponse.Failed);
         Assert.Equal("order-1", failure.Id);
         Assert.Equal("InvalidParameterValue", failure.Code);
