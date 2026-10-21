@@ -37,7 +37,11 @@ public class MessageBusBuilderTests
         _serviceCollection.AddLogging();
         _serviceCollection.AddDefaultAWSOptions(new AWSOptions
         {
-            Region = Amazon.RegionEndpoint.USWest2
+            Region = Amazon.RegionEndpoint.USWest2,
+            // Fake credentials prevent the AWS SDK credential chain from running during unit tests.
+            // These are never used to make real API calls — they only satisfy ClientFactory<T>
+            // which resolves credentials eagerly at GetService<IAmazonSQS/SNS/EventBridge>() time.
+            Credentials = new Amazon.Runtime.BasicAWSCredentials("test", "test")
         });
     }
 
