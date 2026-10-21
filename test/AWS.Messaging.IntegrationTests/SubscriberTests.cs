@@ -10,6 +10,7 @@ using Amazon.SQS.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.IntegrationTests.Handlers;
 using AWS.Messaging.IntegrationTests.Models;
+using AWS.Messaging.Tests.Common;
 using AWS.Messaging.Tests.Common.Services;
 using AWS.Messaging.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,9 +28,10 @@ public class SubscriberTests : IAsyncLifetime
 
     public SubscriberTests()
     {
-        _sqsClient = new AmazonSQSClient();
+        _sqsClient = new TestAwsBackend().CreateSqsClient();
         _serviceCollection = new ServiceCollection();
         _serviceCollection.AddLogging(x => x.AddInMemoryLogger().SetMinimumLevel(LogLevel.Trace));
+        _serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
         _sqsQueueUrl = string.Empty;
     }
 
@@ -71,7 +73,8 @@ public class SubscriberTests : IAsyncLifetime
 
         var tempStorage = serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await AsyncTestUtilities.WaitUntilAsync(() => tempStorage.Messages.Count >= 1, source.Token);
+        source.Cancel();
 
         var message = Assert.Single(tempStorage.Messages);
         Assert.False(string.IsNullOrEmpty(message.Id));
@@ -126,13 +129,15 @@ public class SubscriberTests : IAsyncLifetime
 
         var numberOfBatches = (int)Math.Ceiling((decimal)numberOfMessages / maxConcurrentMessages);
 
-        // Wait for the pump to shut down after processing the expected number of messages,
-        // with some padding to ensure messages aren't being processed more than once
-        source.CancelAfter(numberOfBatches * 12000);
-        while (!source.IsCancellationRequested) { }
-
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
         var tempStorage = serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
+
+        // Wait until the expected number of messages have been processed, with a ceiling to
+        // avoid hanging if they aren't. Once reached, stop the pump before asserting so the
+        // exact-count assertion below still catches any duplicate delivery.
+        source.CancelAfter(numberOfBatches * 12000);
+        await AsyncTestUtilities.WaitUntilAsync(() => tempStorage.Messages.Count >= numberOfMessages, source.Token);
+        source.Cancel();
 
         Assert.DoesNotContain(inMemoryLogger.Logs, (x => x.Exception is AmazonSQSException ex && ex.ErrorCode.Equals("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")));
         Assert.Equal(numberOfMessages, tempStorage.Messages.Count);
@@ -281,7 +286,12 @@ public class SubscriberTests : IAsyncLifetime
         var foodItemTempStorage = serviceProvider.GetRequiredService<TempStorage<FoodItem>>();
         var orderInfoTempStorage = serviceProvider.GetRequiredService<TempStorage<OrderInfo>>();
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await AsyncTestUtilities.WaitUntilAsync(
+            () => chatMessageTempStorage.Messages.Count >= numberOfMessages
+                && foodItemTempStorage.Messages.Count >= numberOfMessages
+                && orderInfoTempStorage.Messages.Count >= numberOfMessages,
+            source.Token);
+        source.Cancel();
 
         Assert.Equal(numberOfMessages, chatMessageTempStorage.Messages.Count);
         Assert.Equal(numberOfMessages, foodItemTempStorage.Messages.Count);
@@ -349,10 +359,14 @@ public class SubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
 
         var chatMessageTempStorage = serviceProvider.GetRequiredService<TempStorage<ChatMessage>>();
-        source.CancelAfter(30000);
-        while (!source.IsCancellationRequested) { }
-
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
+        source.CancelAfter(30000);
+        await AsyncTestUtilities.WaitUntilAsync(
+            () => chatMessageTempStorage.Messages.Count >= numberOfMessages
+                && inMemoryLogger.Logs.Count(x => x.Message.Equals("Failed to create a MessageEnvelope")) >= numberOfMessages,
+            source.Token);
+        source.Cancel();
+
         var errorMessages = inMemoryLogger.Logs.Where(x => x.Message.Equals("Failed to create a MessageEnvelope"));
         Assert.NotEmpty(errorMessages);
         Assert.True(errorMessages.Count() >= numberOfMessages);
@@ -396,7 +410,7 @@ public class SubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
 
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await source.Token.WaitForCancellationAsync();
         var timeElapsed = DateTime.UtcNow - processStartTime;
 
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
@@ -437,7 +451,7 @@ public class SubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
 
         source.CancelAfter(60000);
-        while (!source.IsCancellationRequested) { }
+        await source.Token.WaitForCancellationAsync();
         var timeElapsed = DateTime.UtcNow - processStartTime;
 
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();

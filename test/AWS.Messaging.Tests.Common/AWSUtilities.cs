@@ -37,6 +37,22 @@ public static class AWSUtilities
         ".Trim();
 
     /// <summary>
+    /// The CPU architecture of the host running the tests, as the string ("arm64" or "x86_64") understood
+    /// by both the Lambda <c>Architectures</c> property and the <c>dotnet lambda package --function-architecture</c>
+    /// option. A Lambda deployment package must match the architecture of the container it runs in (the AWS
+    /// Lambda runtime, or a local emulator such as floci which spawns a per-host-arch runtime container),
+    /// so on Apple Silicon we deploy arm64 functions and on x64 hosts we deploy x86_64.
+    /// </summary>
+    public static string HostLambdaArchitecture =>
+        System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
+        {
+            System.Runtime.InteropServices.Architecture.X64 => "x86_64",
+            System.Runtime.InteropServices.Architecture.Arm64 => "arm64",
+            var other => throw new PlatformNotSupportedException(
+                $"Lambda functions cannot be built for the {other} host architecture; the Lambda integration tests must run on an x64 or arm64 host.")
+        };
+
+    /// <summary>
     /// Creates a Lambda execution role if it doesn't already exist, using the AWS-provided AWSLambdaSQSQueueExecutionRole
     /// </summary>
     /// <param name="iamClient">IAM Client</param>
@@ -185,6 +201,7 @@ public static class AWSUtilities
             MemorySize = 512,
             Timeout = functionTimeout,
             Runtime = Runtime.Dotnet8,
+            Architectures = new List<string> { HostLambdaArchitecture },
             Role = executionRoleArn,
         };
 

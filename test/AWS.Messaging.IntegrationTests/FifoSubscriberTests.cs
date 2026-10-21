@@ -29,9 +29,10 @@ public class FifoSubscriberTests : IAsyncLifetime
 
     public FifoSubscriberTests()
     {
-        _sqsClient = new AmazonSQSClient();
+        _sqsClient = new TestAwsBackend().CreateSqsClient();
         _serviceCollection = new ServiceCollection();
         _serviceCollection.AddLogging(x => x.AddInMemoryLogger().SetMinimumLevel(LogLevel.Trace));
+        _serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
         _sqsQueueUrl = string.Empty;
     }
 
@@ -76,12 +77,16 @@ public class FifoSubscriberTests : IAsyncLifetime
         var source = new CancellationTokenSource();
         await pump.StartAsync(source.Token);
 
-        // Wait for the pump to shut down after processing the expected number of messages,
-        // with some padding to ensure messages aren't being processed more than once
-        source.CancelAfter(numberOfGroups * numberOfMessagesPerGroup * 2000);
-        while (!source.IsCancellationRequested) { }
-
         var transactionInfoStorage = serviceProvider.GetRequiredService<TempStorage<TransactionInfo>>();
+
+        // Wait until every group's messages have been processed, with a ceiling to avoid hanging.
+        // The per-group exact-count check in VerifyTransactions still catches any duplicate delivery.
+        source.CancelAfter(numberOfGroups * numberOfMessagesPerGroup * 2000);
+        await AsyncTestUtilities.WaitUntilAsync(
+            () => messageGroups.All(g => transactionInfoStorage.FifoMessages.TryGetValue(g, out var list) && list.Count >= numberOfMessagesPerGroup),
+            source.Token);
+        source.Cancel();
+
         foreach (var messageGroup in messageGroups)
         {
             VerifyTransactions(numberOfMessagesPerGroup, transactionInfoStorage.FifoMessages[messageGroup]);
@@ -125,12 +130,16 @@ public class FifoSubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
         source.CancelAfter((numberOfMessages + 1) * 3000);
 
-        while (!source.IsCancellationRequested) { }
-
         var transactionInfoStorage = serviceProvider.GetRequiredService<TempStorage<TransactionInfo>>();
+        var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
+        await AsyncTestUtilities.WaitUntilAsync(
+            () => transactionInfoStorage.FifoMessages.TryGetValue("A", out var list) && list.Count >= numberOfMessages
+                && inMemoryLogger.Logs.Count(x => x.Message.Equals("Failed to create a MessageEnvelope")) >= numberOfMessages,
+            source.Token);
+        source.Cancel();
+
         VerifyTransactions(numberOfMessages, transactionInfoStorage.FifoMessages["A"]);
 
-        var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
         var errorMessages = inMemoryLogger.Logs.Where(x => x.Message.Equals("Failed to create a MessageEnvelope"));
         Assert.NotEmpty(errorMessages);
         Assert.True(errorMessages.Count() >= numberOfMessages);
@@ -158,7 +167,7 @@ public class FifoSubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
 
         source.CancelAfter(30000);
-        while (!source.IsCancellationRequested) { }
+        await source.Token.WaitForCancellationAsync();
         var timeElapsed = DateTime.UtcNow - processStartTime;
 
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();
@@ -195,7 +204,7 @@ public class FifoSubscriberTests : IAsyncLifetime
         await pump.StartAsync(source.Token);
 
         source.CancelAfter(30000);
-        while (!source.IsCancellationRequested) { }
+        await source.Token.WaitForCancellationAsync();
         var timeElapsed = DateTime.UtcNow - processStartTime;
 
         var inMemoryLogger = serviceProvider.GetRequiredService<InMemoryLogger>();

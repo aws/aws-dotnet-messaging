@@ -10,8 +10,6 @@ using Amazon.EventBridge;
 using Amazon.EventBridge.Model;
 using System.Collections.Generic;
 using Amazon.SQS.Model;
-using Amazon.SecurityToken;
-using Amazon.SecurityToken.Model;
 using AWS.Messaging.IntegrationTests.Handlers;
 using AWS.Messaging.Serialization;
 
@@ -19,9 +17,9 @@ namespace AWS.Messaging.IntegrationTests;
 
 public class EventBridgePublisherTests : IAsyncLifetime
 {
+    private readonly TestAwsBackend _backend;
     private readonly IAmazonEventBridge _eventBridgeClient;
     private readonly IAmazonSQS _sqsClient;
-    private readonly IAmazonSecurityTokenService _stsClient;
     private ServiceProvider _serviceProvider;
     private string _eventBusArn;
     private string _resourceName;
@@ -29,9 +27,9 @@ public class EventBridgePublisherTests : IAsyncLifetime
 
     public EventBridgePublisherTests()
     {
-        _sqsClient = new AmazonSQSClient();
-        _eventBridgeClient = new AmazonEventBridgeClient();
-        _stsClient = new AmazonSecurityTokenServiceClient();
+        _backend = new TestAwsBackend();
+        _sqsClient = _backend.CreateSqsClient();
+        _eventBridgeClient = _backend.CreateEventBridgeClient();
         _serviceProvider = default!;
         _eventBusArn = string.Empty;
         _resourceName = string.Empty;
@@ -75,14 +73,14 @@ public class EventBridgePublisherTests : IAsyncLifetime
             });
         _eventBusArn = createEventBusResponse.EventBusArn;
 
-        var getCallerIdentityResponse = await _stsClient.GetCallerIdentityAsync(new GetCallerIdentityRequest());
+        var accountId = await _backend.GetAccountIdAsync();
         await _eventBridgeClient.PutRuleAsync(new PutRuleRequest
         {
             Name = _resourceName,
             EventBusName = _resourceName,
             EventPattern =
             @$"{{
-              ""account"": [""{getCallerIdentityResponse.Account}""],
+              ""account"": [""{accountId}""],
               ""source"": [""/aws/messaging""]
             }}"
         });
@@ -103,6 +101,8 @@ public class EventBridgePublisherTests : IAsyncLifetime
 
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
+        serviceCollection.AddSingleton<IAmazonEventBridge>(_eventBridgeClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddEventBridgePublisher<ChatMessage>(_eventBusArn);

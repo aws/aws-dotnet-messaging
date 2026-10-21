@@ -1,5 +1,12 @@
 version: 0.2
 
+# Run the integration tests against real AWS resources. The default mode (unset)
+# runs them against the in-memory LocalSqsSnsMessaging backend instead, which is
+# covered by a separate credential-free job in the GitHub Actions workflow.
+env:
+  variables:
+    AWS_MESSAGING_TEST_MODE: aws
+
 phases:
   install:
     runtime-versions:
