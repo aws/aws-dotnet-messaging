@@ -17,6 +17,7 @@ internal class BackoffHandler : IBackoffHandler
 {
     private readonly IBackoffPolicy _backoffPolicy;
     private readonly ILogger<BackoffHandler> _logger;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>
     /// Constructs an instance of <see cref="BackoffHandler"/>
@@ -24,10 +25,12 @@ internal class BackoffHandler : IBackoffHandler
     /// <param name="backoffPolicy">The backoff policy that determines whether a backoff should occur
     /// and how long to wait between back-offs.</param>
     /// <param name="logger">Logger for debugging information</param>
-    public BackoffHandler(IBackoffPolicy backoffPolicy, ILogger<BackoffHandler> logger)
+    /// <param name="timeProvider">Provides time abstractions.</param>
+    public BackoffHandler(IBackoffPolicy backoffPolicy, ILogger<BackoffHandler> logger, TimeProvider timeProvider)
     {
         _backoffPolicy = backoffPolicy;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>
@@ -69,7 +72,7 @@ internal class BackoffHandler : IBackoffHandler
                 var waitTime = _backoffPolicy.RetrieveBackoffTime(retries);
                 _logger.LogWarning("Backing off polling from SQS for messages for {WaitTime}s before trying again...", waitTime.TotalSeconds);
 
-                await Task.Delay(waitTime, token);
+                await Task.Delay(waitTime, _timeProvider, token);
 
                 retries++;
                 _logger.LogWarning("Attempt #{Retry} to poll SQS for messages...", retries);

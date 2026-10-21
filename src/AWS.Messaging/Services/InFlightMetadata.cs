@@ -8,8 +8,11 @@ namespace AWS.Messaging.Services;
 /// </summary>
 internal class InFlightMetadata
 {
-    internal InFlightMetadata(DateTimeOffset expectedVisibilityTimeoutExpiration)
+    private readonly TimeProvider _timeProvider;
+
+    internal InFlightMetadata(DateTimeOffset expectedVisibilityTimeoutExpiration, TimeProvider timeProvider)
     {
+        _timeProvider = timeProvider;
         ExpectedVisibilityTimeoutExpiration = expectedVisibilityTimeoutExpiration;
     }
 
@@ -24,7 +27,7 @@ internal class InFlightMetadata
     /// <param name="newVisibilityTimeoutWindowSeconds">How many seconds from now the message is now expected to become visible again</param>
     internal void UpdateExpectedVisibilityTimeoutExpiration(int newVisibilityTimeoutWindowSeconds)
     {
-        ExpectedVisibilityTimeoutExpiration = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(newVisibilityTimeoutWindowSeconds);
+        ExpectedVisibilityTimeoutExpiration = _timeProvider.GetUtcNow() + TimeSpan.FromSeconds(newVisibilityTimeoutWindowSeconds);
     }
 
     /// <summary>
@@ -37,7 +40,7 @@ internal class InFlightMetadata
     /// <returns>True if the message's visibility timeout should be extended per the specified threshold, false otherwise</returns>
     internal bool IsMessageVisibilityTimeoutExpiring(int expirationThresholdSeconds)
     {
-        var timeUntilExpiration = ExpectedVisibilityTimeoutExpiration - DateTimeOffset.UtcNow;
+        var timeUntilExpiration = ExpectedVisibilityTimeoutExpiration - _timeProvider.GetUtcNow();
 
         if (timeUntilExpiration.TotalSeconds <= expirationThresholdSeconds)
         {

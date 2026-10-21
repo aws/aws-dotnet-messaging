@@ -32,7 +32,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
 
     private readonly IMessageConfiguration _messageConfiguration;
     private readonly IMessageSerializer _messageSerializer;
-    private readonly IDateTimeHandler _dateTimeHandler;
+    private readonly TimeProvider _timeProvider;
     private readonly IMessageIdGenerator _messageIdGenerator;
     private readonly IMessageSourceHandler _messageSourceHandler;
     private readonly IServiceProvider _serviceProvider;
@@ -53,7 +53,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         ILogger<EnvelopeSerializer> logger,
         IMessageConfiguration messageConfiguration,
         IMessageSerializer messageSerializer,
-        IDateTimeHandler dateTimeHandler,
+        TimeProvider timeProvider,
         IMessageIdGenerator messageIdGenerator,
         IMessageSourceHandler messageSourceHandler,
         IServiceProvider serviceProvider)
@@ -61,7 +61,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
         _logger = logger;
         _messageConfiguration = messageConfiguration;
         _messageSerializer = messageSerializer;
-        _dateTimeHandler = dateTimeHandler;
+        _timeProvider = timeProvider;
         _messageIdGenerator = messageIdGenerator;
         _messageSourceHandler = messageSourceHandler;
 
@@ -73,7 +73,7 @@ internal class EnvelopeSerializer : IEnvelopeSerializer
     public async ValueTask<MessageEnvelope<T>> CreateEnvelopeAsync<T>(T message)
     {
         var messageId = await _messageIdGenerator.GenerateIdAsync();
-        var timeStamp = _dateTimeHandler.GetUtcNow();
+        var timeStamp = _timeProvider.GetUtcNow();
 
         var publisherMapping = _messageConfiguration.GetPublisherMapping(typeof(T));
         if (publisherMapping is null)

@@ -16,6 +16,7 @@ public class DefaultMessageManager : IMessageManager
     private readonly IHandlerInvoker _handlerInvoker;
     private readonly ILogger<DefaultMessageManager> _logger;
     private readonly MessageManagerConfiguration _configuration;
+    private readonly TimeProvider _timeProvider;
 
     private int _activeMessageCount;
     private readonly ManualResetEventSlim _activeMessageCountDecrementedEvent = new ManualResetEventSlim(false);
@@ -31,12 +32,27 @@ public class DefaultMessageManager : IMessageManager
     /// <param name="handlerInvoker">Used to look up and invoke the correct handler for each message</param>
     /// <param name="logger">Logger for debugging information</param>
     /// <param name="configuration">The configuration for the message manager</param>
-    public DefaultMessageManager(ISQSMessageCommunication sqsMessageCommunication, IHandlerInvoker handlerInvoker, ILogger<DefaultMessageManager> logger, MessageManagerConfiguration configuration)
+    /// <param name="timeProvider">Provides time abstractions.</param>
+    public DefaultMessageManager(ISQSMessageCommunication sqsMessageCommunication, IHandlerInvoker handlerInvoker, ILogger<DefaultMessageManager> logger, MessageManagerConfiguration configuration, TimeProvider timeProvider)
     {
         _sqsMessageCommunication = sqsMessageCommunication;
         _handlerInvoker = handlerInvoker;
         _logger = logger;
         _configuration = configuration;
+        _timeProvider = timeProvider;
+    }
+
+    /// <summary>
+    /// Constructs an instance of <see cref="DefaultMessageManager"/> using <see cref="TimeProvider.System"/>.
+    /// </summary>
+    /// <param name="sqsMessageCommunication">Provides APIs to communicate back to SQS and the associated Queue for incoming messages.</param>
+    /// <param name="handlerInvoker">Used to look up and invoke the correct handler for each message</param>
+    /// <param name="logger">Logger for debugging information</param>
+    /// <param name="configuration">The configuration for the message manager</param>
+    [Obsolete("Use the constructor overload that accepts a TimeProvider parameter. This overload defaults to TimeProvider.System and will be removed in a future version.")]
+    public DefaultMessageManager(ISQSMessageCommunication sqsMessageCommunication, IHandlerInvoker handlerInvoker, ILogger<DefaultMessageManager> logger, MessageManagerConfiguration configuration)
+        : this(sqsMessageCommunication, handlerInvoker, logger, configuration, TimeProvider.System)
+    {
     }
 
     /// <inheritdoc/>
@@ -157,7 +173,8 @@ public class DefaultMessageManager : IMessageManager
     {
         // Add that metadata to the dictionary of running handlers, used to extend the visibility timeout if necessary
         _inFlightMessageMetadata.TryAdd(messageEnvelope, new InFlightMetadata(
-            DateTimeOffset.UtcNow + TimeSpan.FromSeconds(_configuration.VisibilityTimeout)
+            _timeProvider.GetUtcNow() + TimeSpan.FromSeconds(_configuration.VisibilityTimeout),
+            _timeProvider
         ));
 
         if (_configuration.SupportExtendingVisibilityTimeout)
@@ -242,7 +259,7 @@ public class DefaultMessageManager : IMessageManager
         do
         {
             // Wait for the configured interval before extending visibility
-            await Task.Delay(_configuration.VisibilityTimeoutExtensionHeartbeatInterval, token);
+            await Task.Delay(TimeSpan.FromSeconds(_configuration.VisibilityTimeoutExtensionHeartbeatInterval), _timeProvider, token);
 
             // Select the message envelopes whose corresponding handler task is not yet complete.
             //

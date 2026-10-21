@@ -59,7 +59,7 @@ public class LambdaTests
         var slowMessage = new SimulatedMessage
         {
             Id = "slow-message",
-            WaitTime = TimeSpan.FromSeconds(2)
+            WaitTime = TimeSpan.FromMilliseconds(200)
         };
 
         var fastMessage = new SimulatedMessage
@@ -82,7 +82,7 @@ public class LambdaTests
         var slowMessage = new SimulatedMessage
         {
             Id = "slow-message",
-            WaitTime = TimeSpan.FromSeconds(2)
+            WaitTime = TimeSpan.FromMilliseconds(200)
         };
 
         var fastMessage = new SimulatedMessage
@@ -248,9 +248,9 @@ public class LambdaTests
     public async Task FifoMessageHandling_SingleMessageGroup(int maxNumberOfConcurrentMessages)
     {
         // create messages that belong to the same group with processing times as message3 < message2 < message1
-        var message1 = new SimulatedMessage { Id = "1", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(3) };
-        var message2 = new SimulatedMessage { Id = "2", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(2) };
-        var message3 = new SimulatedMessage { Id = "3", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(1) };
+        var message1 = new SimulatedMessage { Id = "1", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(300) };
+        var message2 = new SimulatedMessage { Id = "2", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(200) };
+        var message3 = new SimulatedMessage { Id = "3", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(100) };
 
         var log = await Execute(new SimulatedMessage[] { message1, message2, message3 },
             maxNumberOfConcurrentMessages: maxNumberOfConcurrentMessages, isFifoQueue: true);
@@ -277,14 +277,14 @@ public class LambdaTests
     public async Task FifoMessageHandling_MultipleMessageGroups(int maxNumberOfConcurrentMessages)
     {
         // create messages that belong to group "A" with processing times as message3A < message2A < message1A
-        var message1A = new SimulatedMessage { Id = "1", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(3) };
-        var message2A = new SimulatedMessage { Id = "2", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(2) };
-        var message3A = new SimulatedMessage { Id = "3", MessageGroupId = "A", WaitTime = TimeSpan.FromSeconds(1) };
+        var message1A = new SimulatedMessage { Id = "1", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(300) };
+        var message2A = new SimulatedMessage { Id = "2", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(200) };
+        var message3A = new SimulatedMessage { Id = "3", MessageGroupId = "A", WaitTime = TimeSpan.FromMilliseconds(100) };
 
         // create messages that belong to group "B" with processing times as message6B < message5B < message4B
-        var message4B = new SimulatedMessage { Id = "4", MessageGroupId = "B", WaitTime = TimeSpan.FromSeconds(3) };
-        var message5B = new SimulatedMessage { Id = "5", MessageGroupId = "B", WaitTime = TimeSpan.FromSeconds(2) };
-        var message6B = new SimulatedMessage { Id = "6", MessageGroupId = "B", WaitTime = TimeSpan.FromSeconds(1) };
+        var message4B = new SimulatedMessage { Id = "4", MessageGroupId = "B", WaitTime = TimeSpan.FromMilliseconds(300) };
+        var message5B = new SimulatedMessage { Id = "5", MessageGroupId = "B", WaitTime = TimeSpan.FromMilliseconds(200) };
+        var message6B = new SimulatedMessage { Id = "6", MessageGroupId = "B", WaitTime = TimeSpan.FromMilliseconds(100) };
 
         // send messages with interleaved message groups
         await Execute(new SimulatedMessage[] { message4B, message1A, message2A, message5B, message3A, message6B },
@@ -569,6 +569,11 @@ public class SimulatedMessage
 
 public class SimulatedMessageHandler : IMessageHandler<SimulatedMessage>
 {
+    // TestLambdaLogger.Buffer is a plain StringBuilder — not thread-safe.
+    // Multiple message groups may run concurrently (FIFO multi-group tests), so log
+    // writes must be serialized to prevent corrupted state / spurious exceptions.
+    private static readonly object _logLock = new();
+
     public readonly ILambdaContext _lambdaContext;
     public readonly TempStorage<SimulatedMessage> _messageStorage;
 
@@ -583,9 +588,9 @@ public class SimulatedMessageHandler : IMessageHandler<SimulatedMessage>
         var message = messageEnvelope.Message;
         try
         {
-            _lambdaContext.Logger.LogInformation("Message Id: " + message.Id);
+            lock (_logLock) { _lambdaContext.Logger.LogInformation("Message Id: " + message.Id); }
 
-            await Task.Delay(message.WaitTime);
+            await Task.Delay(message.WaitTime, token);
             if (message.ReturnFailedStatus)
             {
                 return MessageProcessStatus.Failed();
@@ -595,7 +600,7 @@ public class SimulatedMessageHandler : IMessageHandler<SimulatedMessage>
         }
         finally
         {
-            _lambdaContext.Logger.LogInformation("Finished handler: " + message.Id);
+            lock (_logLock) { _lambdaContext.Logger.LogInformation("Finished handler: " + message.Id); }
             _messageStorage.FifoMessages.Enqueue(messageEnvelope);
         }
     }

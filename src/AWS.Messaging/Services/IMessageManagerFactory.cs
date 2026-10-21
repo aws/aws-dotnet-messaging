@@ -45,7 +45,8 @@ internal class DefaultMessageManagerFactory : IMessageManagerFactory
                 sqsMessageCommunication,
                 _serviceProvider.GetRequiredService<IHandlerInvoker>(),
                 _serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<DefaultMessageManager>(),
-                configuration
+                configuration,
+                _serviceProvider.GetRequiredService<TimeProvider>()
             );
 
         return manager;
