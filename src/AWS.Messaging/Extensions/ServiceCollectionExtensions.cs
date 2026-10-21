@@ -19,9 +19,9 @@ public static class ServiceCollectionExtensions
     /// Allows the configuration of the messaging framework by exposing methods to add publishers and subscribers.
     /// </summary>
     /// <param name="services"><see cref="IServiceCollection"/></param>
-    /// <param name="builder">An action to define the message framework configuration using <see cref="MessageBusBuilder"/></param>
+    /// <param name="builder">An action to define the message framework configuration using <see cref="IMessageBusBuilder"/></param>
     [RequiresUnreferencedCode("This API requires using unreferenced code for reflection based JSON serialization. Use AddAWSMessageBus overload that takes JsonSerializerContext parameter to avoid using unreferenced code.")]
-    public static IServiceCollection AddAWSMessageBus(this IServiceCollection services, Action<MessageBusBuilder> builder)
+    public static IServiceCollection AddAWSMessageBus(this IServiceCollection services, Action<IMessageBusBuilder> builder)
     {
         return ConfigureMessagingServices(services, new NullMessageJsonSerializerContextContainer(), builder);
     }

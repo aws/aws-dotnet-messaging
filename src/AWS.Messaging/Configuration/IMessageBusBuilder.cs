@@ -24,7 +24,45 @@ public interface IMessageBusBuilder
     /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
     /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null);
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier = null) => AddSQSPublisher<TMessage>(queueUrl, messageTypeIdentifier, null);
+
+    /// <summary>
+    /// Adds an SQS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SQS queues URL.
+    /// </summary>
+    /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
+    /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
+    /// <param name="configureOptions">An action to configure <see cref="SQSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, Action<IServiceProvider, TMessage, SQSOptions>? configureOptions) => AddSQSPublisher(queueUrl, null, configureOptions);
+
+    /// <summary>
+    /// Adds an SQS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SQS queues URL.
+    /// </summary>
+    /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
+    /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
+    /// <param name="configureOptions">A function to configure <see cref="SQSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, Func<IServiceProvider, TMessage, SQSOptions, CancellationToken, ValueTask>? configureOptions) => AddSQSPublisher(queueUrl, null, configureOptions);
+
+    /// <summary>
+    /// Adds an SQS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SQS queues URL.
+    /// </summary>
+    /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
+    /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="configureOptions">An action to configure <see cref="SQSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier, Action<IServiceProvider, TMessage, SQSOptions>? configureOptions);
+
+    /// <summary>
+    /// Adds an SQS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SQS queues URL.
+    /// </summary>
+    /// <param name="queueUrl">The SQS queue URL to publish the message to. If the queue URL is null, a message-specific queue
+    /// URL must be specified on the <see cref="SQSOptions"/> when sending a message.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="configureOptions">A function to configure <see cref="SQSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSQSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? queueUrl, string? messageTypeIdentifier, Func<IServiceProvider, TMessage, SQSOptions, CancellationToken, ValueTask>? configureOptions);
 
     /// <summary>
     /// Adds an SNS Publisher to the framework which will handle publishing
@@ -33,7 +71,56 @@ public interface IMessageBusBuilder
     /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
     /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
-    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null);
+    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier = null) => AddSNSPublisher<TMessage>(topicUrl, messageTypeIdentifier, null);
+
+    /// <summary>
+    /// Adds an SNS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SNS topic URL.
+    /// </summary>
+    /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
+    /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
+    /// <param name="configureOptions">An action to configure <see cref="SNSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, Action<IServiceProvider, TMessage, SNSOptions>? configureOptions) => AddSNSPublisher(topicUrl, null, configureOptions);
+
+    /// <summary>
+    /// Adds an SNS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SNS topic URL.
+    /// </summary>
+    /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
+    /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="configureOptions">A function to configure <see cref="SNSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier, Func<IServiceProvider, TMessage, SNSOptions, CancellationToken, ValueTask>? configureOptions);
+
+    /// <summary>
+    /// Adds an SNS Publisher to the framework which will handle publishing
+    /// the defined message type to the specified SNS topic URL.
+    /// </summary>
+    /// <param name="topicUrl">The SNS topic URL to publish the message to. If the topic URL is null, a message-specific
+    /// topic URL must be set on the <see cref="SNSOptions"/> when publishing a message.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="configureOptions">An action to configure <see cref="SNSOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddSNSPublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? topicUrl, string? messageTypeIdentifier, Action<IServiceProvider, TMessage, SNSOptions>? configureOptions);
+
+
+    /// <summary>
+    /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
+    /// If you are specifying a global endpoint ID via <see cref="EventBridgePublishOptions"/>, then you must also include the <see href="https://www.nuget.org/packages/AWSSDK.Extensions.CrtIntegration">AWSSDK.Extensions.CrtIntegration</see> package in your application.
+    /// </summary>
+    /// <param name="eventBusName">The EventBridge event bus name or ARN where the message will be published. If the event bus name is null,
+    /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
+    /// <param name="configureOptions">An optional action to configure <see cref="EventBridgeOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, Action<IServiceProvider, TMessage, EventBridgeOptions>? configureOptions) => AddEventBridgePublisher(eventBusName, null, null, configureOptions);
+
+    /// <summary>
+    /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
+    /// If you are specifying a global endpoint ID via <see cref="EventBridgePublishOptions"/>, then you must also include the <see href="https://www.nuget.org/packages/AWSSDK.Extensions.CrtIntegration">AWSSDK.Extensions.CrtIntegration</see> package in your application.
+    /// </summary>
+    /// <param name="eventBusName">The EventBridge event bus name or ARN where the message will be published. If the event bus name is null,
+    /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
+    /// <param name="configureOptions">An optional function to configure <see cref="EventBridgeOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, Func<IServiceProvider, TMessage, EventBridgeOptions, CancellationToken, ValueTask>? configureOptions) => AddEventBridgePublisher(eventBusName, null, null, configureOptions);
+
 
     /// <summary>
     /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
@@ -43,7 +130,29 @@ public interface IMessageBusBuilder
     /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
     /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
     /// <param name="options">Contains additional properties that can be set while configuring an EventBridge publisher</param>
-    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null);
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier = null, EventBridgePublishOptions? options = null) => AddEventBridgePublisher(eventBusName, messageTypeIdentifier, options, (Action<IServiceProvider, TMessage, EventBridgeOptions>?)null);
+
+    /// <summary>
+    /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
+    /// If you are specifying a global endpoint ID via <see cref="EventBridgePublishOptions"/>, then you must also include the <see href="https://www.nuget.org/packages/AWSSDK.Extensions.CrtIntegration">AWSSDK.Extensions.CrtIntegration</see> package in your application.
+    /// </summary>
+    /// <param name="eventBusName">The EventBridge event bus name or ARN where the message will be published. If the event bus name is null,
+    /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="options">Contains additional properties that can be set while configuring an EventBridge publisher</param>
+    /// <param name="configureOptions">An optional action to configure <see cref="EventBridgeOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier, EventBridgePublishOptions? options, Action<IServiceProvider, TMessage, EventBridgeOptions>? configureOptions);
+
+    /// <summary>
+    /// Adds an EventBridge Publisher to the framework which will handle publishing the defined message type to the specified EventBridge event bus name.
+    /// If you are specifying a global endpoint ID via <see cref="EventBridgePublishOptions"/>, then you must also include the <see href="https://www.nuget.org/packages/AWSSDK.Extensions.CrtIntegration">AWSSDK.Extensions.CrtIntegration</see> package in your application.
+    /// </summary>
+    /// <param name="eventBusName">The EventBridge event bus name or ARN where the message will be published. If the event bus name is null,
+    /// a message-specific event bus must be set on the <see cref="EventBridgeOptions"/> when sending an event.</param>
+    /// <param name="messageTypeIdentifier">The language-agnostic message type identifier. If not specified, the .NET type will be used.</param>
+    /// <param name="options">Contains additional properties that can be set while configuring an EventBridge publisher</param>
+    /// <param name="configureOptions">An optional function to configure <see cref="EventBridgeOptions"/> per message on publish.</param>
+    IMessageBusBuilder AddEventBridgePublisher<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TMessage>(string? eventBusName, string? messageTypeIdentifier, EventBridgePublishOptions? options, Func<IServiceProvider, TMessage, EventBridgeOptions, CancellationToken, ValueTask>? configureOptions = null);
 
     /// <summary>
     /// Add a message handler for a given message type.

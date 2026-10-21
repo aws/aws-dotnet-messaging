@@ -1,8 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-using System.Collections.Concurrent;
-using System.Collections.Frozen;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Publishers.EventBridge;
 using AWS.Messaging.Publishers.SNS;
@@ -41,25 +39,6 @@ internal class MessageRoutingPublisher : IMessagePublisher
         _telemetryFactory = telemetryFactory;
     }
 
-    private static readonly FrozenDictionary<string, Type> s_publisherTypeMapping = new Dictionary<string, Type>
-        {
-            { PublisherTargetType.SQS_PUBLISHER, typeof(SQSPublisher) },
-            { PublisherTargetType.SNS_PUBLISHER, typeof(SNSPublisher) },
-            { PublisherTargetType.EVENTBRIDGE_PUBLISHER, typeof(EventBridgePublisher) }
-        }.ToFrozenDictionary();
-
-    /// <summary>
-    /// This dictionary serves as a method to cache created instances of <see cref="ICommandPublisher"/>,
-    /// to avoid having to create a new instance any time a message is sent.
-    /// </summary>
-    private readonly ConcurrentDictionary<Type, ICommandPublisher> _commandPublisherInstances = new();
-
-    /// <summary>
-    /// This dictionary serves as a method to cache created instances of <see cref="IEventPublisher"/>,
-    /// to avoid having to create a new instance any time a message is published.
-    /// </summary>
-    private readonly ConcurrentDictionary<Type, IEventPublisher> _eventPublisherInstances = new();
-
     /// <summary>
     /// Publishes a user-defined message to an AWS service based on the
     /// configuration done during startup. It retrieves the <see cref="PublisherMapping"/> corresponding to the
@@ -86,30 +65,44 @@ internal class MessageRoutingPublisher : IMessagePublisher
 
                 trace.AddMetadata(TelemetryKeys.PublishTargetType, mapping.PublishTargetType);
 
-                if (s_publisherTypeMapping.TryGetValue(mapping.PublishTargetType, out var publisherType))
+                switch (mapping.PublishTargetType)
                 {
-                    if (typeof(ICommandPublisher).IsAssignableFrom(publisherType))
-                    {
-                        var publisher = _commandPublisherInstances.GetOrAdd(publisherType, _ => (ICommandPublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
-                        return await publisher.SendAsync(message, token);
-                    }
-                    else if (typeof(IEventPublisher).IsAssignableFrom(publisherType))
-                    {
-                        var publisher = _eventPublisherInstances.GetOrAdd(publisherType, _ => (IEventPublisher) ActivatorUtilities.CreateInstance(_serviceProvider, publisherType));
-                        return await publisher.PublishAsync(message, token);
-                    }
-                    else
-                    {
-                        _logger.LogError("The message publisher corresponding to the type '{PublishTargetType}' is invalid " +
-                                         "and does not implement the interface '{CommandInterfaceType}' or '{EventInterfaceType}'.", mapping.PublishTargetType, typeof(ICommandPublisher), typeof(IEventPublisher));
-                        throw new InvalidPublisherTypeException($"The message publisher corresponding to the type '{mapping.PublishTargetType}' is invalid " +
-                                                                $"and does not implement the interface '{typeof(ICommandPublisher)}' or '{typeof(IEventPublisher)}'.");
-                    }
-                }
-                else
-                {
-                    _logger.LogError("The publisher type '{PublishTargetType}' is not supported.", mapping.PublishTargetType);
-                    throw new UnsupportedPublisherException($"The publisher type '{mapping.PublishTargetType}' is not supported.");
+                    case PublisherTargetType.SQS_PUBLISHER:
+                        SQSOptions? sqsOptions = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            sqsOptions = new SQSOptions();
+                            await mapping.ConfigureOptions(_serviceProvider, message!, sqsOptions, token);
+                        }
+
+                        var sqsPublisher = _serviceProvider.GetRequiredService<ISQSPublisher>();
+                        return await sqsPublisher.SendAsync(message, sqsOptions, token);
+
+                    case PublisherTargetType.SNS_PUBLISHER:
+                        SNSOptions? snsOptions = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            snsOptions = new SNSOptions();
+                            await mapping.ConfigureOptions(_serviceProvider, message!, snsOptions, token);
+                        }
+
+                        var snsPublisher = _serviceProvider.GetRequiredService<ISNSPublisher>();
+                        return await snsPublisher.PublishAsync(message, snsOptions, token);
+
+                    case PublisherTargetType.EVENTBRIDGE_PUBLISHER:
+                        EventBridgeOptions? ebOptions = null;
+                        if (mapping.ConfigureOptions != null)
+                        {
+                            ebOptions = new EventBridgeOptions();
+                            await mapping.ConfigureOptions(_serviceProvider, message!, ebOptions, token);
+                        }
+
+                        var ebPublisher = _serviceProvider.GetRequiredService<IEventBridgePublisher>();
+                        return await ebPublisher.PublishAsync(message, ebOptions, token);
+
+                    default:
+                        _logger.LogError("The publisher type '{PublishTargetType}' is not supported.", mapping.PublishTargetType);
+                        throw new UnsupportedPublisherException($"The publisher type '{mapping.PublishTargetType}' is not supported.");
                 }
             }
             catch (Exception ex)

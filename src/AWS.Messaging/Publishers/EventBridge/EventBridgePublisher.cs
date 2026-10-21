@@ -5,7 +5,6 @@ using Amazon.EventBridge;
 using Amazon.EventBridge.Model;
 using AWS.Messaging.Configuration;
 using AWS.Messaging.Serialization;
-using AWS.Messaging.Services;
 using AWS.Messaging.Telemetry;
 using Microsoft.Extensions.Logging;
 
@@ -157,7 +156,7 @@ internal class EventBridgePublisher : IMessagePublisher, IEventBridgePublisher
 
         if (!string.IsNullOrEmpty(eventBridgeOptions?.Source))
             requestEntry.Source = eventBridgeOptions.Source;
-        else if(!string.IsNullOrEmpty(source))
+        else if (!string.IsNullOrEmpty(source))
             requestEntry.Source = source;
 
         if (!string.IsNullOrEmpty(eventBridgeOptions?.TraceHeader))
