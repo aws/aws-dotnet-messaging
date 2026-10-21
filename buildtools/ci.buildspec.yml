@@ -3,12 +3,12 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      dotnet: 8.x
+      dotnet: 10.x
 
   build:
     commands:
-      - dotnet build AWS.Messaging.sln -c Release
-      - dotnet test AWS.Messaging.sln -c Release --no-build --logger trx --results-directory ./testresults
+      - dotnet build AWS.Messaging.slnx -c Release
+      - dotnet test AWS.Messaging.slnx -c Release --no-build --logger trx --results-directory ./testresults
 reports:
     aws-dotnet-messaging-tests:
         file-format: VisualStudioTrx
