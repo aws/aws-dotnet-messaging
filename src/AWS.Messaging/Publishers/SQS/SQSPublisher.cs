@@ -115,9 +115,27 @@ internal class SQSPublisher : ISQSPublisher
     /// <summary>
     /// <inheritdoc/>
     /// </summary>
-    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
-    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
-    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    /// <exception cref="FailedToPublishBatchException">If a SendMessageBatch request threw, for example because of an SQS error,
+    /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
+    /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every message: those of the
+    /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
+    /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.NotReported"/> if SQS left
+    /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
+    /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
+    /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>
+    /// <exception cref="OperationCanceledException">If <paramref name="token"/> was cancelled. No partial results are available.
+    /// Messages in earlier requests, and possibly those in the request that was in flight when <paramref name="token"/> was
+    /// cancelled, may already have been delivered.</exception>
+    /// <exception cref="ArgumentNullException">If <paramref name="messages"/> is null.</exception>
+    /// <exception cref="InvalidMessageException">If any message is null. Nothing is sent in this case.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If <typeparamref name="T"/> is not configured to be published to SQS.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidPublisherEndpointException">If no queue URL is configured for <typeparamref name="T"/>.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidFifoPublishingRequestException">If the queue is a FIFO queue. Use the other overload to set a
+    /// <see cref="SQSMessageOptions.MessageGroupId"/> on every entry. Nothing is sent in this case.</exception>
+    /// <exception cref="FailedToSerializeMessageEnvelopeException">If a message cannot be serialized.
+    /// Nothing is sent in this case.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<T> messages, CancellationToken token = default)
     {
         if (messages == null)
@@ -132,9 +150,27 @@ internal class SQSPublisher : ISQSPublisher
     /// <summary>
     /// <inheritdoc/>
     /// </summary>
-    /// <exception cref="FailedToPublishException">If the batch request failed due to an SQS SDK exception.</exception>
-    /// <exception cref="InvalidMessageException">If any message in the batch is null.</exception>
-    /// <exception cref="MissingMessageTypeConfigurationException">If cannot find the publisher configuration for the message type.</exception>
+    /// <exception cref="FailedToPublishBatchException">If a SendMessageBatch request threw, for example because of an SQS error,
+    /// a network error or a timeout. The original exception is the <see cref="Exception.InnerException"/>, and no later
+    /// request is sent. <see cref="FailedToPublishBatchException.PartialResponse"/> accounts for every entry: those of the
+    /// earlier requests are in <see cref="SQSSendBatchResponse.Successful"/> or <see cref="SQSSendBatchResponse.Failed"/> (or in
+    /// <see cref="SQSSendBatchResponse.Unprocessed"/> as <see cref="SQSSendBatchUnprocessedReason.NotReported"/> if SQS left
+    /// them out of its response), those of the request that threw are in <see cref="SQSSendBatchResponse.Unprocessed"/> as
+    /// <see cref="SQSSendBatchUnprocessedReason.OutcomeUnknown"/>, and those of the later requests as
+    /// <see cref="SQSSendBatchUnprocessedReason.NotSent"/>.</exception>
+    /// <exception cref="OperationCanceledException">If <paramref name="token"/> was cancelled. No partial results are available.
+    /// Messages in earlier requests, and possibly those in the request that was in flight when <paramref name="token"/> was
+    /// cancelled, may already have been delivered.</exception>
+    /// <exception cref="ArgumentNullException">If <paramref name="entries"/> is null.</exception>
+    /// <exception cref="InvalidMessageException">If the message of any entry is null. Nothing is sent in this case.</exception>
+    /// <exception cref="MissingMessageTypeConfigurationException">If <typeparamref name="T"/> is not configured to be published to SQS.
+    /// Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidPublisherEndpointException">If <paramref name="batchOptions"/> sets no queue URL and none is configured
+    /// for <typeparamref name="T"/>. Nothing is sent in this case.</exception>
+    /// <exception cref="InvalidFifoPublishingRequestException">If the queue is a FIFO queue and an entry has no
+    /// <see cref="SQSMessageOptions.MessageGroupId"/>. Nothing is sent in this case.</exception>
+    /// <exception cref="FailedToSerializeMessageEnvelopeException">If a message cannot be serialized.
+    /// Nothing is sent in this case.</exception>
     public async Task<SQSSendBatchResponse> SendBatchAsync<T>(IEnumerable<SQSBatchEntry<T>> entries, SQSBatchOptions? batchOptions = null, CancellationToken token = default)
     {
         if (entries == null)
@@ -173,9 +209,10 @@ internal class SQSPublisher : ISQSPublisher
 
                     var messageBody = await _envelopeSerializer.SerializeAsync(messageEnvelope);
 
-                    // Use the MessageEnvelope.Id as the batch entry Id so callers can correlate
-                    // successes/failures in the response back to their original input messages
-                    var batchEntry = CreateSendMessageBatchRequestEntry(messageEnvelope.Id, queueUrl, messageBody, entry.Options);
+                    // Use the caller-supplied Id, or the MessageEnvelope.Id when none was given, as the batch entry Id
+                    // so callers can correlate successes/failures in the response back to their original input messages
+                    var batchEntryId = entry.Id ?? messageEnvelope.Id;
+                    var batchEntry = CreateSendMessageBatchRequestEntry(batchEntryId, queueUrl, messageBody, entry.Options);
                     batchRequestEntries.Add(batchEntry);
                 }
 
@@ -189,25 +226,80 @@ internal class SQSPublisher : ISQSPublisher
                     batchRequestEntries.Count, typeof(T), queueUrl);
 
                 // Chunk into groups of MAX_BATCH_SIZE (10) and send each chunk.
-                // Note: If an AmazonSQSException occurs on a later chunk, earlier chunks may have already
-                // succeeded. The partial results are surfaced on the thrown FailedToPublishBatchException.
+                // Note: If sending a chunk fails, earlier chunks may have already succeeded. The partial results, including
+                // the entries of the failing chunk and of the chunks never sent, are surfaced on the thrown FailedToPublishBatchException.
                 var chunks = Chunk(batchRequestEntries, MAX_BATCH_SIZE);
 
-                foreach (var chunk in chunks)
+                for (var chunkIndex = 0; chunkIndex < chunks.Count; chunkIndex++)
                 {
+                    var chunk = chunks[chunkIndex];
                     var request = new SendMessageBatchRequest
                     {
                         QueueUrl = queueUrl,
                         Entries = chunk
                     };
 
-                    var response = await client.SendMessageBatchAsync(request, token);
+                    SendMessageBatchResponse response;
+                    try
+                    {
+                        response = await client.SendMessageBatchAsync(request, token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+                    {
+                        // Any failure (SQS error, network error, timeout) is wrapped so the partial results are not lost.
+                        // Cancellation requested by the caller propagates unchanged, following .NET convention.
+                        trace.AddException(ex);
+
+                        // The entries of this chunk may or may not have reached SQS, and later chunks were never sent
+                        var unsentEntries = chunks.Skip(chunkIndex + 1).SelectMany(c => c);
+                        aggregatedResponse.Unprocessed.AddRange(
+                            CreateUnprocessedEntries(chunk, SQSSendBatchUnprocessedReason.OutcomeUnknown));
+                        aggregatedResponse.Unprocessed.AddRange(
+                            CreateUnprocessedEntries(unsentEntries, SQSSendBatchUnprocessedReason.NotSent));
+
+                        throw new FailedToPublishBatchException(
+                            "Message batch failed to publish. Some messages in earlier chunks may have been sent successfully. " +
+                            "Check the PartialResponse property for details.",
+                            ex, aggregatedResponse);
+                    }
+
+                    // Count the entries sent with each Id, so that each entry is matched by at most one result.
+                    // A result whose Id was not sent in this chunk, or whose entries all have a result already, is ignored,
+                    // so it cannot be mistaken for another entry or counted twice. An entry left without a result has an
+                    // unknown outcome.
+                    var unreportedIdCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                    foreach (var requestEntry in chunk)
+                    {
+                        if (requestEntry.Id != null)
+                        {
+                            unreportedIdCounts.TryGetValue(requestEntry.Id, out var count);
+                            unreportedIdCounts[requestEntry.Id] = count + 1;
+                        }
+                    }
+
+                    bool TryClaim(string? id)
+                    {
+                        if (id != null && unreportedIdCounts.TryGetValue(id, out var count) && count > 0)
+                        {
+                            unreportedIdCounts[id] = count - 1;
+                            return true;
+                        }
+
+                        _logger.LogWarning(
+                            "SQS reported a result for batch entry with Id '{BatchEntryId}', which was not in the request " +
+                            "or was already reported. The result is ignored.",
+                            id);
+                        return false;
+                    }
 
                     // Aggregate successful entries
                     if (response.Successful != null)
                     {
                         foreach (var success in response.Successful)
                         {
+                            if (!TryClaim(success.Id))
+                                continue;
+
                             aggregatedResponse.Successful.Add(new SQSSendBatchResponseEntry
                             {
                                 Id = success.Id,
@@ -221,6 +313,9 @@ internal class SQSPublisher : ISQSPublisher
                     {
                         foreach (var failure in response.Failed)
                         {
+                            if (!TryClaim(failure.Id))
+                                continue;
+
                             _logger.LogError(
                                 "Failed to send batch entry with Id '{BatchEntryId}' to SQS. Error Code: {ErrorCode}, Error Message: {ErrorMessage}",
                                 failure.Id, failure.Code, failure.Message);
@@ -234,25 +329,41 @@ internal class SQSPublisher : ISQSPublisher
                             });
                         }
                     }
+
+                    // SQS should report every entry as successful or failed. An entry it did not report has an unknown outcome.
+                    // Entries that share an Id cannot be told apart, so only as many of them as have no result are reported here.
+                    foreach (var requestEntry in chunk)
+                    {
+                        if (requestEntry.Id != null)
+                        {
+                            var unreportedCount = unreportedIdCounts[requestEntry.Id];
+                            if (unreportedCount == 0)
+                                continue;
+
+                            unreportedIdCounts[requestEntry.Id] = unreportedCount - 1;
+                        }
+
+                        _logger.LogWarning(
+                            "SQS did not report a result for batch entry with Id '{BatchEntryId}'. Its outcome is unknown.",
+                            requestEntry.Id);
+                        aggregatedResponse.Unprocessed.Add(new SQSSendBatchResponseUnprocessedEntry
+                        {
+                            Id = requestEntry.Id,
+                            Reason = SQSSendBatchUnprocessedReason.NotReported
+                        });
+                    }
                 }
 
                 _logger.LogDebug(
-                    "Batch send of type '{MessageType}' completed. {SuccessCount} message(s) succeeded, {FailCount} message(s) failed.",
-                    typeof(T), aggregatedResponse.Successful.Count, aggregatedResponse.Failed.Count);
+                    "Batch send of type '{MessageType}' completed. {SuccessCount} message(s) succeeded, " +
+                    "{FailCount} message(s) failed, {UnprocessedCount} message(s) unprocessed.",
+                    typeof(T), aggregatedResponse.Successful.Count, aggregatedResponse.Failed.Count, aggregatedResponse.Unprocessed.Count);
 
                 return aggregatedResponse;
             }
-            catch (Exception ex) when (ex is AmazonSQSException)
+            catch (Exception ex) when (ex is not FailedToPublishBatchException)
             {
-                trace.AddException(ex);
-                // Surface partial results from chunks that may have succeeded before this failure
-                throw new FailedToPublishBatchException(
-                    "Message batch failed to publish. Some messages in earlier chunks may have been sent successfully. " +
-                    "Check the PartialResponse property for details.",
-                    ex, aggregatedResponse);
-            }
-            catch (Exception ex)
-            {
+                // A FailedToPublishBatchException has already recorded the exception that caused it on the trace
                 trace.AddException(ex);
                 throw;
             }
@@ -310,6 +421,17 @@ internal class SQSPublisher : ISQSPublisher
             entry.MessageAttributes = entryOptions.MessageAttributes;
 
         return entry;
+    }
+
+    private static IEnumerable<SQSSendBatchResponseUnprocessedEntry> CreateUnprocessedEntries(
+        IEnumerable<SendMessageBatchRequestEntry> requestEntries,
+        SQSSendBatchUnprocessedReason reason)
+    {
+        return requestEntries.Select(e => new SQSSendBatchResponseUnprocessedEntry
+        {
+            Id = e.Id,
+            Reason = reason
+        });
     }
 
     private static List<List<T>> Chunk<T>(List<T> source, int chunkSize)
