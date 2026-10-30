@@ -1,0 +1,11 @@
+{
+  "Projects": [
+    {
+      "Name": "AWS.Messaging",
+      "Type": "Patch",
+      "ChangelogMessages": [
+        "Log handler resolution and other exceptions that occur while processing SQS messages instead of silently discarding them"
+      ]
+    }
+  ]
+}

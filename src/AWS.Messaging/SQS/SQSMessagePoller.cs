@@ -189,8 +189,11 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
     {
         foreach (var result in messageEnvelopResults)
         {
-            // Don't await this result, we want to process multiple messages concurrently
-            _ = _messageManager.ProcessMessageAsync(result.Envelope, result.Mapping, token);
+            // Don't await this result, we want to process multiple messages concurrently.
+            // Observe the returned task so that any exception which propagates out of
+            // ProcessMessageAsync (for example InvalidMessageHandlerSignatureException) is logged
+            // rather than becoming an unobserved task exception that is silently discarded.
+            ObserveTask(_messageManager.ProcessMessageAsync(result.Envelope, result.Mapping, token));
         }
     }
 
@@ -218,9 +221,26 @@ internal class SQSMessagePoller : IMessagePoller, ISQSMessageCommunication
 
         foreach (var item in messageGroupMapping)
         {
-            // Don't await this result, we want to process multiple message groups concurrently
-            _ = _messageManager.ProcessMessageGroupAsync(item.Value, item.Key, token);
+            // Don't await this result, we want to process multiple message groups concurrently.
+            // Observe the returned task so that any propagated exception is logged rather than
+            // becoming an unobserved task exception that is silently discarded.
+            ObserveTask(_messageManager.ProcessMessageGroupAsync(item.Value, item.Key, token));
         }
+    }
+
+    /// <summary>
+    /// Observes a fire-and-forget message processing task so that any exception which propagates
+    /// out of it is logged. Without this, an exception (such as <see cref="InvalidMessageHandlerSignatureException"/>)
+    /// that bubbles up from <see cref="IMessageManager.ProcessMessageAsync"/> would become an unobserved
+    /// task exception and be silently discarded by the runtime, making handler resolution failures
+    /// invisible under the SQS/ECS poller (unlike the Lambda path which awaits its tasks).
+    /// </summary>
+    private void ObserveTask(Task task)
+    {
+        task.ContinueWith(faultedTask =>
+        {
+            _logger.LogError(faultedTask.Exception, "An unhandled exception occurred while processing messages from {SubscriberEndpoint}", _configuration.SubscriberEndpoint);
+        }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     /// <inheritdoc/>
