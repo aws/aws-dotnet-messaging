@@ -1,0 +1,1 @@
+{"Projects":[{"Name":"AWS.Messaging","Type":"Patch","ChangelogMessages":["Emit handler outcome error logs while the handler telemetry Activity is still current so log records correlate with the handler trace/span."]}]}

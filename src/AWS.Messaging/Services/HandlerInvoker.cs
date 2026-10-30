@@ -76,7 +76,16 @@ public class HandlerInvoker : IHandlerInvoker
                         }
 
                         var middlewares = _messageConfiguration.SubscriberMiddleware.Select(type => (IHandlerMiddleware)scope.ServiceProvider.GetRequiredService(type.Type)!).ToList();
-                        return await ExecutePipelineAsync(messageEnvelope, middlewares, handler, token).ConfigureAwait(false);
+                        var status = await ExecutePipelineAsync(messageEnvelope, middlewares, handler, token).ConfigureAwait(false);
+
+                        // Log the unsuccessful outcome here, while the handler's telemetry Activity is still
+                        // current, so the log record is correlated with the handler span. See issue #337.
+                        if (!status.IsSuccess)
+                        {
+                            _logger.LogError("Message handling completed unsuccessfully for message ID {MessageId}", messageEnvelope.Id);
+                        }
+
+                        return status;
                     }
                     catch (Exception ex) when (ex is not InvalidMessageHandlerSignatureException)
                     {
@@ -132,6 +141,10 @@ public class HandlerInvoker : IHandlerInvoker
             catch (Exception ex)
             {
                 trace.AddException(ex);
+
+                // Log the faulted outcome here, while the handler's telemetry Activity is still current,
+                // so the log record is correlated with the handler span. See issue #337.
+                _logger.LogError(ex, "An exception has been thrown from handler '{HandlerType}' while processing message with ID '{MessageId}'", subscriberMapping.HandlerType.Name, messageEnvelope.Id);
                 throw;
             }
         }

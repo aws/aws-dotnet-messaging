@@ -180,9 +180,11 @@ public class DefaultMessageManager : IMessageManager
         {
             // Swallow exceptions thrown by the framework, and rely on the thrower to log
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "An exception has been thrown from handler '{HandlerType}' while processing message with ID '{MessageId}'", subscriberMapping.HandlerType.Name, messageEnvelope.Id);
+            // The exception is logged within HandlerInvoker.InvokeAsync while the handler's telemetry
+            // Activity is still current (see issue #337), so we only swallow it here to let the faulted
+            // outcome below report the failure.
         }
 
         _inFlightMessageMetadata.Remove(messageEnvelope, out _);
@@ -197,13 +199,15 @@ public class DefaultMessageManager : IMessageManager
             }
             else // the handler still finished, but returned MessageProcessStatus.Failed
             {
-                _logger.LogError("Message handling completed unsuccessfully for message ID {MessageId}", messageEnvelope.Id);
+                // The unsuccessful outcome is logged within HandlerInvoker.InvokeAsync while the handler's
+                // telemetry Activity is still current (see issue #337), so we only report the failure here.
                 await _sqsMessageCommunication.ReportMessageFailureAsync(messageEnvelope);
             }
         }
         else if (handlerTask.IsFaulted)
         {
-            _logger.LogError(handlerTask.Exception, "An exception has been thrown from handler '{HandlerType}' while processing message with ID '{MessageId}'", subscriberMapping.HandlerType.Name, messageEnvelope.Id);
+            // The faulted outcome is logged within HandlerInvoker.InvokeAsync while the handler's telemetry
+            // Activity is still current (see issue #337), so we only report the failure here.
             await _sqsMessageCommunication.ReportMessageFailureAsync(messageEnvelope);
         }
 
