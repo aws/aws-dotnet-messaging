@@ -66,8 +66,9 @@ public class LambdaIntegrationTestFixture : IAsyncLifetime, IDisposable
 
     public LambdaIntegrationTestFixture()
     {
-        _iamClient = new AmazonIdentityManagementServiceClient();
-        _s3Client = new AmazonS3Client();
+        var backend = new TestAwsBackend();
+        _iamClient = backend.CreateIAMClient();
+        _s3Client = backend.CreateS3Client();
     }
 
     public async Task InitializeAsync()
@@ -99,7 +100,8 @@ public class LambdaIntegrationTestFixture : IAsyncLifetime, IDisposable
             {
                 FileName = "dotnet",
                 CreateNoWindow = true,
-                Arguments = "lambda package -c Release",
+                // Package for the host's architecture, matching the Architectures the functions are created with.
+                Arguments = $"lambda package -c Release --function-architecture {AWSUtilities.HostLambdaArchitecture}",
                 WorkingDirectory = path
             }
         };
@@ -162,9 +164,10 @@ public class LambdaEventTests : IAsyncLifetime
     {
         _fixture = fixture;
 
-        _lambdaClient = new AmazonLambdaClient();
-        _sqsClient = new AmazonSQSClient();
-        _cloudWatchLogsClient = new AmazonCloudWatchLogsClient();
+        var backend = new TestAwsBackend();
+        _lambdaClient = backend.CreateLambdaClient();
+        _sqsClient = backend.CreateSqsClient();
+        _cloudWatchLogsClient = backend.CreateCloudWatchLogsClient();
     }
 
     public async Task InitializeAsync()
@@ -180,6 +183,7 @@ public class LambdaEventTests : IAsyncLifetime
         // Create the publisher
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddSQSPublisher<TransactionInfo>(_queueUrl, "TransactionInfo");
@@ -201,7 +205,7 @@ public class LambdaEventTests : IAsyncLifetime
     /// <summary>
     /// Happy path test for successful message
     /// </summary>
-    [Fact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Success()
     {
         var message = new TransactionInfo
@@ -221,7 +225,7 @@ public class LambdaEventTests : IAsyncLifetime
     /// <summary>
     /// Tests that a message that the Lambda handler fails for is moved to the DLQ appropriately
     /// </summary>
-    [Fact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Failure()
     {
         var message = new TransactionInfo
@@ -266,9 +270,10 @@ public class LambdaBatchTests : IAsyncLifetime
     {
         _fixture = fixture;
 
-        _lambdaClient = new AmazonLambdaClient();
-        _sqsClient = new AmazonSQSClient();
-        _cloudWatchLogsClient = new AmazonCloudWatchLogsClient();
+        var backend = new TestAwsBackend();
+        _lambdaClient = backend.CreateLambdaClient();
+        _sqsClient = backend.CreateSqsClient();
+        _cloudWatchLogsClient = backend.CreateCloudWatchLogsClient();
     }
 
     public async Task InitializeAsync()
@@ -283,6 +288,7 @@ public class LambdaBatchTests : IAsyncLifetime
         // Create the publisher
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddSQSPublisher<TransactionInfo>(_queueUrl, "TransactionInfo");
@@ -304,7 +310,7 @@ public class LambdaBatchTests : IAsyncLifetime
     /// <summary>
     /// Happy path test for successful message
     /// </summary>
-    [Fact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Success()
     {
         var message = new TransactionInfo
@@ -324,7 +330,7 @@ public class LambdaBatchTests : IAsyncLifetime
     /// <summary>
     /// Tests that a message that the Lambda handler fails for is moved to the DLQ appropriately
     /// </summary>
-    [Fact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Failure()
     {
         var message = new TransactionInfo
@@ -367,9 +373,10 @@ public class LambdaFifoTests : IAsyncLifetime
     {
         _fixture = fixture;
 
-        _lambdaClient = new AmazonLambdaClient();
-        _sqsClient = new AmazonSQSClient();
-        _cloudWatchLogsClient = new AmazonCloudWatchLogsClient();
+        var backend = new TestAwsBackend();
+        _lambdaClient = backend.CreateLambdaClient();
+        _sqsClient = backend.CreateSqsClient();
+        _cloudWatchLogsClient = backend.CreateCloudWatchLogsClient();
     }
 
     public async Task InitializeAsync()
@@ -385,6 +392,7 @@ public class LambdaFifoTests : IAsyncLifetime
         // Create the publisher
         var serviceProvider = new ServiceCollection()
             .AddLogging()
+            .AddSingleton<IAmazonSQS>(_sqsClient)
             .AddSingleton<TempStorage<TransactionInfo>>()
             .AddAWSMessageBus(builder =>
             {
@@ -408,7 +416,7 @@ public class LambdaFifoTests : IAsyncLifetime
     /// Asserts that when handling messages from a FIFO queue in Lambda that they are
     /// handled in the correct order
     /// </summary>
-    [Theory]
+    [LambdaTheory]
     [InlineData(1, 10)]
     [InlineData(3, 5)]
     public async Task ProcessFifoLambdaEventsAsync_Success(int numberOfGroups, int numberOfMessagesPerGroup)

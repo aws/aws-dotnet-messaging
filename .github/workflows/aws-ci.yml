@@ -14,6 +14,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Runs the test suite in its default mode: integration tests execute against the
+  # in-memory LocalSqsSnsMessaging backend, so no AWS credentials are required.
+  # Tests that need real AWS resources (e.g. Lambda) are skipped in this mode and
+  # covered by the run-ci job below, which runs with AWS_MESSAGING_TEST_MODE=aws.
+  run-local-tests:
+    name: Run tests (in-memory)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check out the repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 8.x
+      - name: Run Tests (in-memory)
+        run: dotnet test AWS.Messaging.sln -c Release
+  # Runs the test suite against a local AWS Emulator (https://github.com/aws/aws-emulator)
+  # container, a close approximation of the real AWS APIs. Unlike the run-ci job below, this
+  # needs no AWS credentials or repository secrets, so it also provides near-real coverage on
+  # pull requests from forks, where secrets are unavailable and the real-AWS job cannot run.
+  # The Lambda tests are skipped here because the emulator cannot yet run .NET functions.
+  run-emulator-tests:
+    name: Run tests (AWS Emulator)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # to check out the repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 8.x
+      - name: Start AWS Emulator
+        run: docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d --build --wait
+      - name: Run Tests (AWS Emulator)
+        env:
+          AWS_MESSAGING_TEST_MODE: emulator
+        run: dotnet test AWS.Messaging.sln -c Release
+      - name: AWS Emulator logs
+        if: failure()
+        run: docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml logs
   run-ci:
     name: Run CI
     runs-on: ubuntu-latest

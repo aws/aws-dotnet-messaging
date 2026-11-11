@@ -1,0 +1,31 @@
+# Local AWS Emulator (https://github.com/aws/aws-emulator) used by the integration tests
+# when AWS_MESSAGING_TEST_MODE=emulator.
+#
+#   docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d --build --wait
+#   AWS_MESSAGING_TEST_MODE=emulator dotnet test test/AWS.Messaging.IntegrationTests
+#
+# AWS Emulator doesn't publish a container image, so the image is built from the
+# Dockerfile in ./aws-emulator, which installs a pinned version of its RPM package.
+#
+# The tests target https://127.0.0.1:9297 by default (see TestAwsBackend), overridable via
+# the AWS_EMULATOR_SERVICE_URL environment variable. The emulator only serves HTTPS, with a
+# self-signed certificate it generates on each start; the tests trust it for loopback
+# endpoints. Request signing is turned off (--auth off) so the tests can use dummy
+# credentials instead of reading the per-run keys the emulator generates; the port is
+# published on 127.0.0.1 only, so nothing outside this machine can reach it.
+#
+# The host port defaults to 9297; set AWS_EMULATOR_HOST_PORT if that clashes with another
+# process on your machine (and point AWS_EMULATOR_SERVICE_URL at the port you chose).
+services:
+  aws-emulator:
+    build: ./aws-emulator
+    image: aws-dotnet-messaging/aws-emulator:local
+    command: ["--auth", "off", "--telemetry", "off"]
+    ports:
+      - "127.0.0.1:${AWS_EMULATOR_HOST_PORT:-9297}:9297"
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://127.0.0.1:9297/__admin/health"]
+      interval: 1s
+      timeout: 2s
+      retries: 60

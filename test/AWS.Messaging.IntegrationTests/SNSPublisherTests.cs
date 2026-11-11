@@ -23,8 +23,9 @@ public class SNSPublisherTests : IAsyncLifetime
 
     public SNSPublisherTests()
     {
-        _sqsClient = new AmazonSQSClient();
-        _snsClient = new AmazonSimpleNotificationServiceClient();
+        var backend = new TestAwsBackend();
+        _sqsClient = backend.CreateSqsClient();
+        _snsClient = backend.CreateSnsClient();
         _serviceProvider = default!;
         _snsTopicArn = string.Empty;
         _sqsQueueUrl = string.Empty;
@@ -43,6 +44,8 @@ public class SNSPublisherTests : IAsyncLifetime
 
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging();
+        serviceCollection.AddSingleton<IAmazonSQS>(_sqsClient);
+        serviceCollection.AddSingleton<IAmazonSimpleNotificationService>(_snsClient);
         serviceCollection.AddAWSMessageBus(builder =>
         {
             builder.AddSNSPublisher<ChatMessage>(_snsTopicArn);
