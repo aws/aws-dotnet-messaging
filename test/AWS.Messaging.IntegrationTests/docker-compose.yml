@@ -1,31 +1,31 @@
-# Local AWS emulator used by the integration tests when AWS_MESSAGING_TEST_MODE=floci.
+# Local AWS Emulator (https://github.com/aws/aws-emulator) used by the integration tests
+# when AWS_MESSAGING_TEST_MODE=emulator.
 #
-#   docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d
-#   AWS_MESSAGING_TEST_MODE=floci dotnet test test/AWS.Messaging.IntegrationTests
+#   docker compose -f test/AWS.Messaging.IntegrationTests/docker-compose.yml up -d --build --wait
+#   AWS_MESSAGING_TEST_MODE=emulator dotnet test test/AWS.Messaging.IntegrationTests
 #
-# The tests target http://localhost:4566 by default (see TestAwsBackend),
-# overridable via the FLOCI_SERVICE_URL environment variable.
+# AWS Emulator doesn't publish a container image, so the image is built from the
+# Dockerfile in ./aws-emulator, which installs a pinned version of its RPM package.
 #
-# The Docker socket mount is required for the Lambda integration tests: floci
-# runs each Lambda in a real Docker container that it spawns on its own network
-# and attaches to floci via FLOCI_BASE_URL. Without the socket, the in-process
-# services (SQS, SNS, EventBridge, S3, IAM, STS, Logs) still work but Lambda does not.
-# The host port defaults to 4566; set FLOCI_HOST_PORT if that clashes with another
-# emulator on your machine (and point FLOCI_SERVICE_URL at the port you chose).
+# The tests target https://127.0.0.1:9297 by default (see TestAwsBackend), overridable via
+# the AWS_EMULATOR_SERVICE_URL environment variable. The emulator only serves HTTPS, with a
+# self-signed certificate it generates on each start; the tests trust it for loopback
+# endpoints. Request signing is turned off (--auth off) so the tests can use dummy
+# credentials instead of reading the per-run keys the emulator generates; the port is
+# published on 127.0.0.1 only, so nothing outside this machine can reach it.
+#
+# The host port defaults to 9297; set AWS_EMULATOR_HOST_PORT if that clashes with another
+# process on your machine (and point AWS_EMULATOR_SERVICE_URL at the port you chose).
 services:
-  floci:
-    image: floci/floci:1.5.32
+  aws-emulator:
+    build: ./aws-emulator
+    image: aws-dotnet-messaging/aws-emulator:local
+    command: ["--auth", "off", "--telemetry", "off"]
     ports:
-      - "${FLOCI_HOST_PORT:-4566}:4566"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      FLOCI_HOSTNAME: floci
-      FLOCI_BASE_URL: http://floci:4566
-      FLOCI_SERVICES_DOCKER_NETWORK: floci_default
-
-# Name the default network explicitly so it matches FLOCI_SERVICES_DOCKER_NETWORK,
-# letting spawned Lambda containers reach floci at http://floci:4566.
-networks:
-  default:
-    name: floci_default
+      - "127.0.0.1:${AWS_EMULATOR_HOST_PORT:-9297}:9297"
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://127.0.0.1:9297/__admin/health"]
+      interval: 1s
+      timeout: 2s
+      retries: 60

@@ -40,7 +40,7 @@ public static class AWSUtilities
     /// The CPU architecture of the host running the tests, as the string ("arm64" or "x86_64") understood
     /// by both the Lambda <c>Architectures</c> property and the <c>dotnet lambda package --function-architecture</c>
     /// option. A Lambda deployment package must match the architecture of the container it runs in (the AWS
-    /// Lambda runtime, or a local emulator such as floci which spawns a per-host-arch runtime container),
+    /// Lambda runtime, or a local emulator that runs functions in a container matching the host CPU),
     /// so on Apple Silicon we deploy arm64 functions and on x64 hosts we deploy x86_64.
     /// </summary>
     public static string HostLambdaArchitecture =>

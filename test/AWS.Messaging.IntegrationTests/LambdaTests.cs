@@ -100,8 +100,7 @@ public class LambdaIntegrationTestFixture : IAsyncLifetime, IDisposable
             {
                 FileName = "dotnet",
                 CreateNoWindow = true,
-                // Package for the host's architecture so the function runs both on real AWS and in a
-                // local emulator (e.g. floci), which executes the function in a container matching the host CPU.
+                // Package for the host's architecture, matching the Architectures the functions are created with.
                 Arguments = $"lambda package -c Release --function-architecture {AWSUtilities.HostLambdaArchitecture}",
                 WorkingDirectory = path
             }
@@ -206,7 +205,7 @@ public class LambdaEventTests : IAsyncLifetime
     /// <summary>
     /// Happy path test for successful message
     /// </summary>
-    [AWSFact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Success()
     {
         var message = new TransactionInfo
@@ -226,7 +225,7 @@ public class LambdaEventTests : IAsyncLifetime
     /// <summary>
     /// Tests that a message that the Lambda handler fails for is moved to the DLQ appropriately
     /// </summary>
-    [AWSFact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Failure()
     {
         var message = new TransactionInfo
@@ -311,7 +310,7 @@ public class LambdaBatchTests : IAsyncLifetime
     /// <summary>
     /// Happy path test for successful message
     /// </summary>
-    [AWSFact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Success()
     {
         var message = new TransactionInfo
@@ -331,7 +330,7 @@ public class LambdaBatchTests : IAsyncLifetime
     /// <summary>
     /// Tests that a message that the Lambda handler fails for is moved to the DLQ appropriately
     /// </summary>
-    [AWSFact]
+    [LambdaFact]
     public async Task ProcessLambdaEventAsync_Failure()
     {
         var message = new TransactionInfo
@@ -417,7 +416,7 @@ public class LambdaFifoTests : IAsyncLifetime
     /// Asserts that when handling messages from a FIFO queue in Lambda that they are
     /// handled in the correct order
     /// </summary>
-    [AWSTheory]
+    [LambdaTheory]
     [InlineData(1, 10)]
     [InlineData(3, 5)]
     public async Task ProcessFifoLambdaEventsAsync_Success(int numberOfGroups, int numberOfMessagesPerGroup)
